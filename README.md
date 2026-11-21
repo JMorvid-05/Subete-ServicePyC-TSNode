@@ -1,5 +1,5 @@
-# Subete-TSNode
-Entorno de desarrollo para la elaboración de APIS para la aplicación Súbete, enfocado a los módulos de usuarios (Conductores y pasajeros) y calificaciones
+# Subete-TSNode - API CRUD
+Entorno de desarrollo para la elaboración de API-crud para la aplicación Súbete, enfocado a los módulos de usuarios (Conductores y pasajeros) y calificaciones
 
 
 Librerías instaladas
