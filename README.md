@@ -380,11 +380,10 @@ _(La plataforma exacta se documenta aquí cuando el grupo la cierre: Azure Conta
 
 | Integrante | Código|
 | --- | --- |
-| _(completar)_ | |
-| _(completar)_ | |
-| _(completar)_ | |
+| Esteban Alexander Bautista Solano | 20221020089 |
+| Juan David Mayorga Vega | 20211020137 |
+| Juan David Orduz Sastoque | 20221020096 |
 
-_Registry completado al cierre del proyecto, reflejando los pull requests y revisiones de cada persona (la rama `main` es protegida: todos los cambios entran por PR con al menos una aprobación)._
 
 ---
 
