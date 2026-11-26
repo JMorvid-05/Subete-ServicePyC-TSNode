@@ -1,0 +1,72 @@
+# Pipeline de despliegue — SOLO por pull_request (nunca por push).
+# Corre cuando un PR se cierra FUSIONADO a main (pull_request.closed + merged).
+#   1. publica la imagen en el registro (ACR)
+#   2. despliega en la plataforma elegida con sus variables y secretos
+#   3. prueba de humo: verifica que /health responda 200
+# Si algo falla, queda registrado en el PR y se corrige con un nuevo PR.
+name: Deploy — imagen, despliegue y prueba de humo
+
+on:
+  pull_request:
+    types: [closed]
+
+jobs:
+  desplegar:
+    name: "${{ matrix.servicio }} — publicar, desplegar y humo"
+    # Solo cuando el PR fue FUSIONADO a main (no por cerrarlo sin fusionar).
+    if: github.event.pull_request.merged == true && github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    # "produccion" es un environment de GitHub con los secretos protegidos.
+    environment: produccion
+    strategy:
+      fail-fast: false
+      matrix:
+        servicio: [crud-api, mid-api]
+    env:
+      # Variables (Settings → Variables) definidas por el equipo:
+      # ACR_LOGIN_SERVER, AZURE_RESOURCE_GROUP, ACA_CRUD_API / ACA_MID_API,
+      # CRUD_API_URL (URL estable del crud-api), MID_API_URL (del mid-api).
+      ACR_LOGIN_SERVER: ${{ vars.ACR_LOGIN_SERVER }}
+      AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+      NOMBRE_APP: ${{ matrix.servicio == 'crud-api' && vars.ACA_CRUD_API || vars.ACA_MID_API }}
+      SMOKE_URL: ${{ matrix.servicio == 'crud-api' && vars.CRUD_API_URL || vars.MID_API_URL }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Login en Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Login en el registro de imágenes (ACR)
+        run: az acr login --name "${ACR_LOGIN_SERVER%%.*}"
+
+      - name: Build y publicación de la imagen
+        run: |
+          docker build --tag "${ACR_LOGIN_SERVER}/subete-${{ matrix.servicio }}:${GITHUB_SHA}" "services/${{ matrix.servicio }}"
+          docker push "${ACR_LOGIN_SERVER}/subete-${{ matrix.servicio }}:${GITHUB_SHA}"
+
+      - name: Despliegue de la revisión nueva
+        # Azure Container Apps: apunta la revisión a la imagen recién publicada.
+        # (Si el grupo elige App Service u otro, se reemplaza este paso.)
+        run: |
+          az containerapp revision set-image \
+            --name "${NOMBRE_APP}" \
+            --resource-group "${AZURE_RESOURCE_GROUP}" \
+            --image "${ACR_LOGIN_SERVER}/subete-${{ matrix.servicio }}:${GITHUB_SHA}"
+
+      - name: Prueba de humo (/health == 200)
+        run: |
+          echo "Verificando ${SMOKE_URL}/health ..."
+          for intento in $(seq 1 12); do
+            codigo="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 5 "${SMOKE_URL}/health" || true)"
+            if [ "${codigo}" = "200" ]; then
+              echo "Prueba de humo OK (${intento}/12): /health respondió 200"
+              exit 0
+            fi
+            echo "Intento ${intento}/12: código ${codigo}; esperando 5 s..."
+            sleep 5
+          done
+          echo "Prueba de humo FALLIDA: ${SMOKE_URL}/health no respondió 200"
+          exit 1

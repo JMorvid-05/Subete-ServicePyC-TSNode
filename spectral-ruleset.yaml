@@ -1,0 +1,9 @@
+# Reglas del linter de OpenAPI que usa el pipeline (Spectral).
+# Se ejecuta en .github/workflows/ci.yml al abrir o actualizar un pull request.
+extends:
+  - spectral:oas
+rules:
+  # El clúster trabaja "contrato primero": exigimos buena descripción
+  # y seguridad declarada en cada operación.
+  info-description: error
+  oas3-operation-security-defined: error

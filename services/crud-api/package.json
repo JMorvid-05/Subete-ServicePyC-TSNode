@@ -1,0 +1,40 @@
+{
+  "name": "subete-crud-api",
+  "version": "1.0.0",
+  "description": "API CRUD de perfiles y calificaciones del clúster Súbete (Grupo B — Pasajeros y reputación)",
+  "type": "module",
+  "main": "dist/server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "db:migrar": "tsx src/db/migrate.ts",
+    "lint:openapi": "npx --yes @stoplight/spectral-cli lint --ruleset ../../spectral-ruleset.yaml --fail-severity=error docs/openapi/openapi.yaml"
+  },
+  "keywords": [
+    "subete",
+    "microservicios",
+    "crud",
+    "express",
+    "typescript"
+  ],
+  "author": "Grupo B — Pasajeros y reputación",
+  "license": "ISC",
+  "dependencies": {
+    "dotenv": "^18.0.10",
+    "express": "^5.3.0",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.11",
+    "@types/pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  }
+}

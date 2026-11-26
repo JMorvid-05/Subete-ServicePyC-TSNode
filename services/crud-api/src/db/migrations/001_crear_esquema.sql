@@ -1,0 +1,13 @@
+-- 001 — Esquema de la API CRUD (esqueleto)
+--
+-- TODO: crear las tablas mínimas exigidas por la consigna:
+--   perfiles(id, nombre, correo UNIQUE, rol, activo, creado_en)
+--     CHECK: rol IN ('pasajero', 'conductor', 'ambos')
+--   calificaciones(id, reserva_id, de_perfil_id, para_perfil_id, estrellas, comentario, creado_en)
+--     CHECK: estrellas BETWEEN 1 AND 5
+--     CHECK: de_perfil_id <> para_perfil_id (nadie se califica a sí mismo)
+--     UNIQUE (reserva_id, de_perfil_id)  -> calificacion_duplicada
+--     FK: perfiles(de_perfil_id), perfiles(para_perfil_id)
+--
+-- Este archivo está vacío a propósito: el runner (migrate.ts) lo omite hasta
+-- que contenga sentencias SQL reales.

@@ -1,0 +1,79 @@
+# Pipeline de validación — SOLO por pull_request (nunca por push).
+# Corre al abrir o actualizar un PR:
+#   1. typecheck + pruebas unitarias + build de cada servicio (falla = PR bloqueado)
+#   2. linter de los contratos OpenAPI
+#   3. build de las imágenes Docker (sin publicar; eso ocurre al fusionar)
+name: CI — pruebas, linter OpenAPI y build
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+jobs:
+  pruebas-y-build:
+    name: "${{ matrix.servicio }} — typecheck, pruebas y build"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        servicio: [crud-api, mid-api]
+    defaults:
+      run:
+        shell: bash
+        working-directory: services/${{ matrix.servicio }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: services/${{ matrix.servicio }}/package-lock.json
+
+      - name: Instalar dependencias (reproducible)
+        run: npm ci
+
+      - name: Typecheck (tsc --noEmit)
+        run: npm run typecheck
+
+      - name: Pruebas unitarias
+        run: npm test
+
+      - name: Build de producción (tsc)
+        run: npm run build
+
+  linter-openapi:
+    name: Linter de contratos OpenAPI
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Lint de los contratos (falla el PR si el contrato está roto)
+        run: >
+          npx --yes @stoplight/spectral-cli lint
+          --ruleset spectral-ruleset.yaml
+          --fail-severity=error
+          services/crud-api/docs/openapi/openapi.yaml
+          services/mid-api/docs/openapi/openapi.yaml
+
+  build-imagen:
+    name: "${{ matrix.servicio }} — build de imagen Docker"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        servicio: [crud-api, mid-api]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Construir imagen (sin publicar)
+        run: docker build --tag "subete-${{ matrix.servicio }}:pr" "services/${{ matrix.servicio }}"

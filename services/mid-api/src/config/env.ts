@@ -1,0 +1,75 @@
+import dotenv from 'dotenv';
+
+// Orden de carga: primero el .env de la carpeta del servicio (tiene prioridad),
+// luego el .env de la raíz del repositorio. Las variables del sistema
+// (entorno de ejecución / plataforma) nunca se sobreescriben.
+dotenv.config({ path: '.env', quiet: true });
+dotenv.config({ path: '../../.env', quiet: true });
+
+function exigir(nombre: string): string {
+  const valor = process.env[nombre];
+  if (!valor) {
+    throw new Error(
+      `Falta la variable de entorno requerida "${nombre}". ` +
+        `Copia .env.example a .env (raíz o services/mid-api) y rellénala.`,
+    );
+  }
+  return valor;
+}
+
+function numero(nombre: string, defecto: number): number {
+  const valor = Number(process.env[nombre]);
+  return Number.isFinite(valor) && valor > 0 ? valor : defecto;
+}
+
+const urlGateway = exigir('GATEWAY_URL');
+
+export const config = {
+  entorno: process.env.NODE_ENV ?? 'development',
+  puerto: Number(process.env.MID_API_PORT ?? process.env.PORT ?? 3002),
+
+  /** Cabecera secreta del gateway: sin ella se rechaza la llamada (401). */
+  cabeceraGateway: exigir('GATEWAY_SECRET'),
+
+  /** Cliente Client Credentials para pedir tokens al gateway. */
+  gateway: {
+    url: urlGateway,
+    clientId: exigir('GATEWAY_CLIENT_ID'),
+    clientSecret: exigir('GATEWAY_CLIENT_SECRET'),
+    margenVencimientoS: numero('TOKEN_MARGEN_VENCIMIENTO_S', 30),
+  },
+
+  /**
+   * Bases de los consumos: por regla, todo pasa por el gateway.
+   * Son variables (nada hardcodeado) para poder apuntarlos a un mock en pruebas.
+   */
+  reservasUrl: process.env['RESERVAS_URL'] ?? urlGateway,
+  crudUrl: process.env['CRUD_URL'] ?? urlGateway,
+
+  /** Alcances que el gateway valida en nuestro token. */
+  scopes: {
+    leer: process.env['SCOPE_LEER'] ?? 'perfiles:leer',
+    escribir: process.env['SCOPE_ESCRIBIR'] ?? 'perfiles:escribir',
+    reservas: process.env['SCOPE_RESERVAS'] ?? 'reservas:leer',
+  },
+
+  /** Resiliencia HTTP compartida por todos los clientes. */
+  http: {
+    timeoutMs: numero('HTTP_TIMEOUT_MS', 3000),
+    reintentos: numero('HTTP_REINTENTOS', 2),
+    esperaBaseMs: numero('HTTP_ESPERA_BASE_MS', 200),
+  },
+
+  /** API de tercero (analiza el texto de los comentarios). Ver ficha en README. */
+  tercero: {
+    url: process.env['TERCERO_URL'] ?? '',
+    apiKey: process.env['TERCERO_API_KEY'] ?? '',
+    timeoutMs: numero('TERCERO_TIMEOUT_MS', 2000),
+    reintentos: numero('TERCERO_REINTENTOS', 2),
+    cacheTtlS: numero('TERCERO_CACHE_TTL_S', 300),
+    /** Declarado en el OpenAPI: `valor_por_defecto` | `503`. */
+    planDegradacion:
+      (process.env['TERCERO_PLAN_DEGRADACION'] as 'valor_por_defecto' | '503' | undefined) ??
+      'valor_por_defecto',
+  },
+} as const;

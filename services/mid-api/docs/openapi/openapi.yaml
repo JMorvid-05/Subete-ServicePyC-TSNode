@@ -1,0 +1,190 @@
+openapi: 3.1.0
+info:
+  title: API MID — Puntaje de confianza y calificaciones validadas (Grupo B)
+  version: 0.1.0
+  description: |
+    API MID del **Grupo B — Pasajeros y reputación** del clúster Súbete.
+    No es dueña de los datos básicos: aplica reglas de negocio combinando
+    llamadas a otras APIs **siempre a través del API Gateway**.
+
+    ## Endpoints
+
+    1. `GET /perfiles/{id}/puntaje` — puntaje de confianza (0–5) e insignia.
+    2. `POST /calificaciones/validadas` — califica solo viajes reales y
+       completados, validando la reserva con el grupo Reservas.
+
+    TODO (cada integrante completa su parte):
+    - Documentar los cuerpos, respuestas y códigos de error de cada operación.
+    - Agregar los schemas de `components/schemas` (PuntajePerfil,
+      ResultadoValidacion, etc.).
+
+    ## Dependencias
+
+    | Vecino | Uso | Alcance |
+    | --- | --- | --- |
+    | crud-api (nuestro grupo) | perfiles y calificaciones | `perfiles:leer` |
+    | API Reservas (grupo C) | historial de reservas y estados | `reservas:leer` |
+    | API de tercero | análisis de texto de comentarios | ver ficha del README |
+
+    Reglas de integración obligatorias del clúster:
+    - Cabecera `X-Gateway-Secret` (401 sin ella, salvo `/health`).
+    - Formato de error común: `{ "codigo": "...", "mensaje": "...", "detalle": {} }`.
+    - 401 del vecino → renueva token y reintenta 1 vez; luego 503.
+    - Vecino caído (503/timeout/red) → 503 `<contexto>_no_disponible`.
+    - API de tercero: plan de degradación declarado (`valor_por_defecto` o `503`);
+      nunca bloquea la calificación si es `valor_por_defecto`.
+  contact:
+    name: Grupo B — Pasajeros y reputación (Clúster Súbete)
+servers:
+  - url: http://localhost:3002
+    description: Desarrollo local
+tags:
+  - name: Salud
+  - name: Puntaje
+  - name: Calificaciones
+
+paths:
+  /health:
+    get:
+      operationId: verificarSalud
+      summary: Prueba de humo del servicio
+      description: Responde `200` siempre; exenta de la cabecera del gateway.
+      tags: [Salud]
+      security: []
+      responses:
+        '200':
+          description: Servicio vivo
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estado, servicio]
+                properties:
+                  estado: { type: string, examples: ['ok'] }
+                  servicio: { type: string, examples: ['mid-api'] }
+
+  /perfiles/{id}/puntaje:
+    parameters:
+      - $ref: '#/components/parameters/IdPerfil'
+    get:
+      operationId: obtenerPuntaje
+      summary: Puntaje de confianza e insignia de un perfil
+      description: |
+        TODO (P-HU3): puntaje 0–5 (promedio ponderado con últimos 30 días
+        al doble, menos tasa de cancelación × 2) e insignia. Si el perfil no
+        existe → 404; si Reservas no responde → 503 (sin puntaje incompleto).
+      tags: [Puntaje]
+      security:
+        - bearerAuth: []
+          cabeceraSecreta: []
+      responses:
+        '200':
+          description: Puntaje del perfil
+          content:
+            application/json:
+              schema: { type: object }
+        '401': { $ref: '#/components/responses/Error401' }
+        '404': { $ref: '#/components/responses/Error404' }
+        '503': { $ref: '#/components/responses/Error503' }
+
+  /calificaciones/validadas:
+    post:
+      operationId: calificarViajeValidada
+      summary: Califica un viaje completado validando contra Reservas
+      description: |
+        TODO (P-HU4): 1) reserva existe → si no 404 `reserva_no_encontrada`;
+        2) estado `completada` → si no 409 `reserva_no_completada`;
+        3) ambos perfiles participantes → si no 403 `no_participante`;
+        4) analiza el comentario con el API de tercero (plan de degradación);
+        5) crea la calificación en el crud-api → 201.
+      tags: [Calificaciones]
+      security:
+        - bearerAuth: []
+          cabeceraSecreta: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object }
+      responses:
+        '201':
+          description: Calificación creada (con el análisis del comentario)
+          content:
+            application/json:
+              schema: { type: object }
+        '400': { $ref: '#/components/responses/Error400' }
+        '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/Error404' }
+        '409': { $ref: '#/components/responses/Error409' }
+        '503': { $ref: '#/components/responses/Error503' }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: 'JWT de corta duración emitido por el API Gateway. Alcances: `perfiles:leer`, `reservas:leer`.'
+    cabeceraSecreta:
+      type: apiKey
+      in: header
+      name: X-Gateway-Secret
+      description: Cabecera que agrega el gateway; obligatoria en rutas de negocio (401 sin ella).
+
+  parameters:
+    IdPerfil:
+      name: id
+      in: path
+      required: true
+      description: Identificador del perfil
+      schema:
+        type: string
+        examples: ['usr-01']
+
+  schemas:
+    ErrorComun:
+      type: object
+      description: Formato de error común acordado en el clúster Súbete
+      required: [codigo, mensaje, detalle]
+      properties:
+        codigo:
+          type: string
+          examples: ['reserva_no_completada']
+        mensaje:
+          type: string
+        detalle:
+          type: object
+          additionalProperties: true
+
+  responses:
+    Error400:
+      description: Datos inválidos (formato común)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorComun' }
+    Error401:
+      description: Sin cabecera secreta del gateway (`cabecera_gateway_invalida`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorComun' }
+    Error403:
+      description: Los perfiles no participaron en la reserva (`no_participante`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorComun' }
+    Error404:
+      description: Recurso no encontrado (formato común)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorComun' }
+    Error409:
+      description: Conflicto de negocio (formato común)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorComun' }
+    Error503:
+      description: Vecino no disponible (formato común)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorComun' }

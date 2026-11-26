@@ -1,0 +1,12 @@
+-- 002 — Datos de semilla (esqueleto)
+--
+-- TODO: insertar datos de prueba coherentes con las reglas del clúster:
+--   - 12 perfiles (ids usr-01 … usr-12) con nombres, correos únicos y roles válidos
+--   - 30 calificaciones de ejemplo con estrellas 1..5 y al menos
+--     un comentario mayor a 100 caracteres (para probar el conteo del MID)
+--   - el estado inicial de insignias de ejemplo debe incluir
+--     confiable, nuevo y en_observacion
+--   - idempotente (usar INSERT ... ON CONFLICT DO NOTHING o borrar antes)
+--
+-- Este archivo está vacío a propósito: el runner (migrate.ts) lo omite hasta
+-- que contenga sentencias SQL reales.
