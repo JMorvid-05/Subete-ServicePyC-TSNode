@@ -1,37 +1,42 @@
 openapi: 3.1.0
 info:
   title: API CRUD — Perfiles y calificaciones (Grupo B)
-  version: 0.1.0
+  version: 1.0.0
   description: |
     API CRUD del **Grupo B — Pasajeros y reputación** del clúster Súbete.
     Administra **perfiles** y **calificaciones** en un PostgreSQL propio.
 
-    TODO (cada integrante completa su parte):
-    - Documentar los parámetros, cuerpos y respuestas de cada operación.
-    - Agregar los códigos de error propios de cada regla de negocio.
-    - Completar los schemas de `components/schemas`.
-
-    Reglas de integración obligatorias del clúster:
+    Reglas de integración del clúster:
     - Todo pasa por el API Gateway: se exige la cabecera `X-Gateway-Secret`
-      (401 sin ella, salvo `/health`).
+      (401 `cabecera_gateway_invalida` sin ella, salvo `/health`).
+    - El gateway valida el JWT (Client Credentials) y el alcance de cada
+      operación: 401 si el token falta o venció, 403 si no tiene el alcance.
     - Formato de error común: `{ "codigo": "...", "mensaje": "...", "detalle": {} }`.
+    - Los campos del JSON van en camelCase.
     - Nadie lee la base de datos de otro servicio.
+
+    **Alcances (propuesta, a confirmar con el líder del gateway):**
+    `perfiles:leer` para lecturas, `perfiles:escribir` para crear, editar y
+    desactivar perfiles, y `calificaciones:escribir` para crear calificaciones.
   contact:
     name: Grupo B — Pasajeros y reputación (Clúster Súbete)
 servers:
   - url: http://localhost:3001
-    description: Desarrollo local
+    description: Desarrollo local (directo al servicio, requiere X-Gateway-Secret)
 tags:
   - name: Salud
+    description: Prueba de humo del despliegue
   - name: Perfiles
+    description: Perfiles de pasajeros y conductores (P-HU1)
   - name: Calificaciones
+    description: Calificaciones entre participantes de un viaje (P-HU2)
 
 paths:
   /health:
     get:
       operationId: verificarSalud
       summary: Prueba de humo del servicio
-      description: Responde `200` siempre; exenta de la cabecera del gateway.
+      description: Responde `200` siempre; exenta de la cabecera del gateway y del token.
       tags: [Salud]
       security: []
       responses:
@@ -49,42 +54,62 @@ paths:
   /perfiles:
     get:
       operationId: listarPerfiles
-      summary: Lista perfiles con filtro por rol y paginación
-      description: 'TODO (P-HU1): filtros `rol`, `pagina`, `porPagina`; excluye inactivos.'
+      summary: Lista perfiles activos con filtro por rol y paginación
+      description: Los perfiles desactivados no aparecen. Ordenados por `id`.
       tags: [Perfiles]
       security:
-        - bearerAuth: []
+        - tokenGateway: ['perfiles:leer']
           cabeceraSecreta: []
+      parameters:
+        - $ref: '#/components/parameters/Rol'
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
       responses:
         '200':
           description: Lista paginada
           content:
             application/json:
-              schema: { type: object }
+              schema: { $ref: '#/components/schemas/ListadoPerfiles' }
         '400': { $ref: '#/components/responses/Error400' }
         '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '503': { $ref: '#/components/responses/Error503' }
     post:
       operationId: crearPerfil
       summary: Crea un perfil
-      description: 'TODO (P-HU1): correo repetido → `409 correo_ya_registrado`.'
+      description: |
+        El id se genera (`usr-13`, `usr-14`, …). El correo se guarda en
+        minúsculas y es único sin distinguir mayúsculas.
+        - Datos inválidos → `400 datos_invalidos`
+        - Correo repetido → `409 correo_ya_registrado`
       tags: [Perfiles]
       security:
-        - bearerAuth: []
+        - tokenGateway: ['perfiles:escribir']
           cabeceraSecreta: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { type: object }
+            schema: { $ref: '#/components/schemas/PerfilEntrada' }
       responses:
         '201':
           description: Perfil creado
           content:
             application/json:
-              schema: { type: object }
+              schema: { $ref: '#/components/schemas/Perfil' }
         '400': { $ref: '#/components/responses/Error400' }
         '401': { $ref: '#/components/responses/Error401' }
-        '409': { $ref: '#/components/responses/Error409' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '409':
+          description: Ya existe un perfil con ese correo (`correo_ya_registrado`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorComun' }
+              example:
+                codigo: correo_ya_registrado
+                mensaje: Ya existe un perfil con ese correo
+                detalle: { correo: laura.gomez@ejemplo.edu.co }
+        '503': { $ref: '#/components/responses/Error503' }
 
   /perfiles/{id}:
     parameters:
@@ -92,107 +117,173 @@ paths:
     get:
       operationId: obtenerPerfil
       summary: Detalle de un perfil
-      description: 'TODO: devuelve el perfil; si no existe → `404 perfil_no_encontrado`.'
+      description: |
+        Devuelve también los perfiles desactivados (con `activo: false`),
+        porque sus calificaciones siguen siendo históricas.
       tags: [Perfiles]
       security:
-        - bearerAuth: []
+        - tokenGateway: ['perfiles:leer']
           cabeceraSecreta: []
       responses:
         '200':
           description: Perfil encontrado
           content:
             application/json:
-              schema: { type: object }
+              schema: { $ref: '#/components/schemas/Perfil' }
+        '400': { $ref: '#/components/responses/Error400' }
         '401': { $ref: '#/components/responses/Error401' }
-        '404': { $ref: '#/components/responses/Error404' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/PerfilNoEncontrado' }
+        '503': { $ref: '#/components/responses/Error503' }
     put:
       operationId: actualizarPerfil
       summary: Actualiza nombre, correo y rol
-      description: 'TODO: reemplaza los campos editables; `409` si el correo ya existe.'
+      description: Reemplaza los campos editables. `409 correo_ya_registrado` si el correo es de otro perfil.
       tags: [Perfiles]
       security:
-        - bearerAuth: []
+        - tokenGateway: ['perfiles:escribir']
           cabeceraSecreta: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { type: object }
+            schema: { $ref: '#/components/schemas/PerfilEntrada' }
       responses:
         '200':
           description: Perfil actualizado
           content:
             application/json:
-              schema: { type: object }
+              schema: { $ref: '#/components/schemas/Perfil' }
         '400': { $ref: '#/components/responses/Error400' }
         '401': { $ref: '#/components/responses/Error401' }
-        '404': { $ref: '#/components/responses/Error404' }
-        '409': { $ref: '#/components/responses/Error409' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/PerfilNoEncontrado' }
+        '409':
+          description: El correo ya pertenece a otro perfil (`correo_ya_registrado`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorComun' }
+        '503': { $ref: '#/components/responses/Error503' }
     delete:
       operationId: desactivarPerfil
       summary: Desactiva un perfil (borrado lógico)
-      description: 'TODO: `activo = false`; el registro se conserva por sus calificaciones.'
+      description: Marca `activo = false`; el registro se conserva por sus calificaciones.
       tags: [Perfiles]
       security:
-        - bearerAuth: []
+        - tokenGateway: ['perfiles:escribir']
           cabeceraSecreta: []
       responses:
         '204': { description: Perfil desactivado }
+        '400': { $ref: '#/components/responses/Error400' }
         '401': { $ref: '#/components/responses/Error401' }
-        '404': { $ref: '#/components/responses/Error404' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '404': { $ref: '#/components/responses/PerfilNoEncontrado' }
+        '503': { $ref: '#/components/responses/Error503' }
 
   /calificaciones:
     get:
       operationId: listarCalificaciones
       summary: Lista calificaciones con filtros por perfil
-      description: 'TODO: filtros `paraPerfilId`, `dePerfilId`, `pagina`, `porPagina`.'
+      description: Ordenadas de la más reciente a la más antigua.
       tags: [Calificaciones]
       security:
-        - bearerAuth: []
+        - tokenGateway: ['perfiles:leer']
           cabeceraSecreta: []
+      parameters:
+        - name: paraPerfilId
+          in: query
+          required: false
+          description: Calificaciones recibidas por este perfil
+          schema: { $ref: '#/components/schemas/Id' }
+        - name: dePerfilId
+          in: query
+          required: false
+          description: Calificaciones hechas por este perfil
+          schema: { $ref: '#/components/schemas/Id' }
+        - $ref: '#/components/parameters/Pagina'
+        - $ref: '#/components/parameters/PorPagina'
       responses:
         '200':
           description: Lista paginada
           content:
             application/json:
-              schema: { type: object }
+              schema: { $ref: '#/components/schemas/ListadoCalificaciones' }
         '400': { $ref: '#/components/responses/Error400' }
         '401': { $ref: '#/components/responses/Error401' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '503': { $ref: '#/components/responses/Error503' }
     post:
       operationId: crearCalificacion
       summary: Crea una calificación
       description: |
-        TODO (P-HU2):
+        No valida contra Reservas (eso lo hace el MID en
+        `POST /calificaciones/validadas`); aquí se aplican las reglas de datos:
         - estrellas fuera de 1–5 → `400 datos_invalidos`
         - auto-calificación → `400 auto_calificacion`
+        - perfil inexistente → `400 perfil_inexistente`
         - misma reserva y mismo autor → `409 calificacion_duplicada`
-        - perfiles inexistentes → `400 perfil_inexistente`
       tags: [Calificaciones]
       security:
-        - bearerAuth: []
+        - tokenGateway: ['calificaciones:escribir']
           cabeceraSecreta: []
       requestBody:
         required: true
         content:
           application/json:
-            schema: { type: object }
+            schema: { $ref: '#/components/schemas/CalificacionEntrada' }
       responses:
         '201':
           description: Calificación creada
           content:
             application/json:
-              schema: { type: object }
-        '400': { $ref: '#/components/responses/Error400' }
+              schema: { $ref: '#/components/schemas/Calificacion' }
+        '400':
+          description: Datos inválidos (`datos_invalidos`, `auto_calificacion` o `perfil_inexistente`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorComun' }
+              examples:
+                autoCalificacion:
+                  summary: Se califica a sí mismo
+                  value:
+                    codigo: auto_calificacion
+                    mensaje: Nadie puede calificarse a sí mismo
+                    detalle: { perfilId: usr-05 }
+                perfilInexistente:
+                  summary: Un perfil no existe
+                  value:
+                    codigo: perfil_inexistente
+                    mensaje: Uno de los perfiles no existe
+                    detalle: { campo: paraPerfilId, id: usr-999 }
         '401': { $ref: '#/components/responses/Error401' }
-        '409': { $ref: '#/components/responses/Error409' }
+        '403': { $ref: '#/components/responses/Error403' }
+        '409':
+          description: Ese perfil ya calificó esta reserva (`calificacion_duplicada`)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorComun' }
+              example:
+                codigo: calificacion_duplicada
+                mensaje: Ese perfil ya calificó esta reserva
+                detalle: { reservaId: res-0001, dePerfilId: usr-05 }
+        '503': { $ref: '#/components/responses/Error503' }
 
 components:
   securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-      description: 'JWT de corta duración emitido por el API Gateway. Alcance: `perfiles:leer`.'
+    tokenGateway:
+      type: oauth2
+      description: |
+        JWT de corta duración emitido por el API Gateway con el flujo Client
+        Credentials (`POST /token` con `client_id` y `client_secret`). Se envía
+        como `Authorization: Bearer <token>`. La lista de cada operación indica
+        el alcance que el gateway exige.
+      flows:
+        clientCredentials:
+          tokenUrl: /token
+          scopes:
+            'perfiles:leer': Consultar perfiles y calificaciones
+            'perfiles:escribir': Crear, editar y desactivar perfiles (propuesta)
+            'calificaciones:escribir': Crear calificaciones (propuesta)
     cabeceraSecreta:
       type: apiKey
       in: header
@@ -205,11 +296,91 @@ components:
       in: path
       required: true
       description: Identificador del perfil
-      schema:
-        type: string
-        examples: ['usr-01']
+      schema: { $ref: '#/components/schemas/Id' }
+    Rol:
+      name: rol
+      in: query
+      required: false
+      description: Filtra por rol
+      schema: { $ref: '#/components/schemas/Rol' }
+    Pagina:
+      name: pagina
+      in: query
+      required: false
+      description: Número de página (desde 1)
+      schema: { type: integer, minimum: 1, default: 1 }
+    PorPagina:
+      name: porPagina
+      in: query
+      required: false
+      description: Elementos por página
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
 
   schemas:
+    Id:
+      type: string
+      pattern: '^[a-z]{2,5}-[A-Za-z0-9-]{1,40}$'
+      examples: ['usr-01']
+    Rol:
+      type: string
+      enum: [pasajero, conductor, ambos]
+    PerfilEntrada:
+      type: object
+      required: [nombre, correo, rol]
+      properties:
+        nombre: { type: string, minLength: 2, maxLength: 80, examples: ['Laura Gómez'] }
+        correo: { type: string, format: email, maxLength: 254, examples: ['laura.gomez@ejemplo.edu.co'] }
+        rol: { $ref: '#/components/schemas/Rol' }
+    Perfil:
+      type: object
+      required: [id, nombre, correo, rol, activo, creadoEn]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        nombre: { type: string, examples: ['Laura Gómez'] }
+        correo: { type: string, format: email, examples: ['laura.gomez@ejemplo.edu.co'] }
+        rol: { $ref: '#/components/schemas/Rol' }
+        activo: { type: boolean, examples: [true] }
+        creadoEn: { type: string, format: date-time }
+    ListadoPerfiles:
+      type: object
+      required: [datos, total, pagina, porPagina]
+      properties:
+        datos:
+          type: array
+          items: { $ref: '#/components/schemas/Perfil' }
+        total: { type: integer, description: Total de resultados con esos filtros, examples: [12] }
+        pagina: { type: integer, examples: [1] }
+        porPagina: { type: integer, examples: [20] }
+    CalificacionEntrada:
+      type: object
+      required: [reservaId, dePerfilId, paraPerfilId, estrellas]
+      properties:
+        reservaId: { $ref: '#/components/schemas/Id' }
+        dePerfilId: { $ref: '#/components/schemas/Id' }
+        paraPerfilId: { $ref: '#/components/schemas/Id' }
+        estrellas: { type: integer, minimum: 1, maximum: 5, examples: [5] }
+        comentario: { type: string, maxLength: 500, examples: ['Puntual y muy amable.'] }
+    Calificacion:
+      type: object
+      required: [id, reservaId, dePerfilId, paraPerfilId, estrellas, comentario, creadoEn]
+      properties:
+        id: { $ref: '#/components/schemas/Id' }
+        reservaId: { $ref: '#/components/schemas/Id' }
+        dePerfilId: { $ref: '#/components/schemas/Id' }
+        paraPerfilId: { $ref: '#/components/schemas/Id' }
+        estrellas: { type: integer, minimum: 1, maximum: 5 }
+        comentario: { type: ['string', 'null'] }
+        creadoEn: { type: string, format: date-time }
+    ListadoCalificaciones:
+      type: object
+      required: [datos, total, pagina, porPagina]
+      properties:
+        datos:
+          type: array
+          items: { $ref: '#/components/schemas/Calificacion' }
+        total: { type: integer }
+        pagina: { type: integer }
+        porPagina: { type: integer }
     ErrorComun:
       type: object
       description: Formato de error común acordado en el clúster Súbete
@@ -226,22 +397,39 @@ components:
 
   responses:
     Error400:
-      description: Datos inválidos (formato común)
+      description: Datos inválidos (`datos_invalidos`, con `detalle.errores`)
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorComun' }
+          example:
+            codigo: datos_invalidos
+            mensaje: Los datos enviados no son válidos
+            detalle:
+              errores:
+                - { campo: correo, mensaje: es requerido y debe ser un correo válido }
     Error401:
-      description: Sin cabecera secreta del gateway (`cabecera_gateway_invalida`)
+      description: |
+        Token ausente, inválido o vencido (lo responde el gateway), o petición
+        directa sin la cabecera secreta (`cabecera_gateway_invalida`).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorComun' }
-    Error404:
-      description: Recurso no encontrado (formato común)
+    Error403:
+      description: El token es válido pero no tiene el alcance de esta operación (gateway).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorComun' }
-    Error409:
-      description: Conflicto (formato común)
+    PerfilNoEncontrado:
+      description: El perfil no existe (`perfil_no_encontrado`)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ErrorComun' }
+          example:
+            codigo: perfil_no_encontrado
+            mensaje: No existe el perfil usr-999
+            detalle: { id: usr-999 }
+    Error503:
+      description: El servicio no respondió a tiempo o está caído (gateway).
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorComun' }

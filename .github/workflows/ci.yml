@@ -44,6 +44,52 @@ jobs:
       - name: Build de producción (tsc)
         run: npm run build
 
+  crud-api-integracion:
+    name: "crud-api — pruebas de integración con PostgreSQL"
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: prueba
+          POSTGRES_PASSWORD: prueba
+          POSTGRES_DB: subete_pruebas
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U prueba -d subete_pruebas"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      # Base desechable del job (no es un secreto real).
+      DATABASE_URL: postgresql://prueba:prueba@localhost:5432/subete_pruebas
+      GATEWAY_SECRET: secreto-de-prueba
+      PRUEBAS_BD: '1'
+    defaults:
+      run:
+        shell: bash
+        working-directory: services/crud-api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: services/crud-api/package-lock.json
+
+      - name: Instalar dependencias (reproducible)
+        run: npm ci
+
+      - name: Migraciones y semilla (prueba que el SQL es válido)
+        run: npm run db:migrar
+
+      - name: Pruebas unitarias + integración contra PostgreSQL
+        run: npm test
+
   linter-openapi:
     name: Linter de contratos OpenAPI
     runs-on: ubuntu-latest

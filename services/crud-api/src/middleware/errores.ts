@@ -53,6 +53,20 @@ export function manejadorErrores(
     return;
   }
 
+  // JSON mal formado (lo lanza express.json): es culpa del cliente → 400.
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    (err as { type?: string }).type === 'entity.parse.failed'
+  ) {
+    res.status(400).json({
+      codigo: 'datos_invalidos',
+      mensaje: 'El cuerpo no es un JSON válido',
+      detalle: {},
+    });
+    return;
+  }
+
   // Error inesperado: se registra para depurar y se responde sin filtrar
   // información interna (ni stack, ni mensajes de la base de datos).
   console.error('[error_interno]', err);
