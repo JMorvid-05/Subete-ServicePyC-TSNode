@@ -47,5 +47,10 @@ export async function calcularPuntajePerfil(
   _dependencias: DependenciasPuntaje = dependenciasPuntaje(),
   _ahora: Date = new Date(),
 ): Promise<PuntajePerfil> {
+  //verificar si el perfil primero existe
+  if (false) {
+    return pendiente('404 perfil no existe');
+  }
+
   return pendiente('calcularPuntajePerfil');
 }

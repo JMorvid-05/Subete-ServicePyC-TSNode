@@ -32,12 +32,7 @@ export function rutaNoEncontrada(req: Request, _res: Response, next: NextFunctio
 }
 
 /** Manejador final: siempre responde el formato común del clúster. */
-export function manejadorErrores(
-  err: unknown,
-  _req: Request,
-  res: Response,
-  _next: NextFunction,
-): void {
+export function manejadorErrores(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
   if (res.headersSent) {
     return;
   }

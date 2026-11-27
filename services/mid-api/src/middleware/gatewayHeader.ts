@@ -5,10 +5,14 @@ import { AppError } from './errores.js';
 /** Nombre de la cabecera secreta que agrega el API Gateway. */
 export const CABECERA_GATEWAY = 'x-gateway-secret';
 
-/** Comparación en tiempo constante para no filtrar el secreto. */
+/** Comparación en tiempo constante para no filtrar el secreto.
+ * o sea, asegurarse de solo mostrar true | false sin revelar el tiempo
+ * de revisión para evitar ataques de fuerza bruta.
+ */
 function coincide(actual: string, esperado: string): boolean {
   const a = createHash('sha256').update(actual).digest();
   const b = createHash('sha256').update(esperado).digest();
+  //
   return timingSafeEqual(a, b);
 }
 
