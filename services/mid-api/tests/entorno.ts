@@ -6,8 +6,13 @@ process.env.GATEWAY_URL ??= 'http://gateway-de-prueba';
 process.env.GATEWAY_CLIENT_ID ??= 'mid-reputacion-prueba';
 process.env.GATEWAY_CLIENT_SECRET ??= 'secreto-cliente-prueba';
 process.env.MID_API_PORT ??= '0';
-process.env.TERCERO_URL ??= '';
-process.env.TERCERO_PLAN_DEGRADACION ??= 'valor_por_defecto';
+process.env.OPENAI_API_KEY ??= '';
+process.env.OPENAI_MODERATION_URL ??= 'https://api.openai.com/v1/moderations';
+process.env.OPENAI_MODERATION_MODEL ??= 'omni-moderation-latest';
+process.env.OPENAI_MODERATION_PLAN_DEGRADACION ??= 'permitir';
+process.env.OPENAI_MODERATION_TIMEOUT_MS ??= '500';
+process.env.OPENAI_MODERATION_MAX_RETRIES ??= '0';
+process.env.OPENAI_MODERATION_CACHE_TTL_MS ??= '60000';
 // Sin vecinos en las pruebas: un solo intento y tiempos cortos.
 process.env.HTTP_REINTENTOS ??= '0';
 process.env.HTTP_TIMEOUT_MS ??= '500';

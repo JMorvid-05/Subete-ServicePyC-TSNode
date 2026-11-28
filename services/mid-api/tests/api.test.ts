@@ -56,3 +56,37 @@ test('ruta desconocida responde 404 en el formato común', async () => {
   const cuerpo = (await respuesta.json()) as { codigo: string };
   assert.equal(cuerpo.codigo, 'ruta_no_encontrada');
 });
+
+test('POST /calificaciones/validadas con estrellas inválidas responde 400', async () => {
+  const respuesta = await fetch(`${base}/calificaciones/validadas`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-gateway-secret': SECRETO },
+    body: JSON.stringify({ reservaId: 'res-1', deId: 'usr-12', paraId: 'usr-05', estrellas: 9 }),
+  });
+  assert.equal(respuesta.status, 400);
+  const cuerpo = (await respuesta.json()) as { codigo: string; detalle: { errores: string[] } };
+  assert.equal(cuerpo.codigo, 'datos_invalidos');
+  assert.ok(cuerpo.detalle.errores.length >= 1);
+});
+
+test('POST /calificaciones/validadas auto-calificación responde 400', async () => {
+  const respuesta = await fetch(`${base}/calificaciones/validadas`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-gateway-secret': SECRETO },
+    body: JSON.stringify({ reservaId: 'res-1', deId: 'usr-12', paraId: 'usr-12', estrellas: 4 }),
+  });
+  assert.equal(respuesta.status, 400);
+  const cuerpo = (await respuesta.json()) as { codigo: string };
+  assert.equal(cuerpo.codigo, 'auto_calificacion');
+});
+
+test('POST /calificaciones/validadas válida responde 503 cuando Reservas no responde', async () => {
+  const respuesta = await fetch(`${base}/calificaciones/validadas`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-gateway-secret': SECRETO },
+    body: JSON.stringify({ reservaId: 'res-1', deId: 'usr-12', paraId: 'usr-05', estrellas: 4 }),
+  });
+  assert.equal(respuesta.status, 503);
+  const cuerpo = (await respuesta.json()) as { codigo: string };
+  assert.equal(cuerpo.codigo, 'reservas_no_disponible');
+});
