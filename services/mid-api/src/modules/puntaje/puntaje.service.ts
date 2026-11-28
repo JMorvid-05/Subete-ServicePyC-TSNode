@@ -52,9 +52,9 @@ export async function calcularPuntajePerfil(
 
   //verificar si el perfil primero existe
   // revisar bien esta parte @@
-  let calificaciones: CalificacionVista[];
+  let perfil: PerfilVista;
   try {
-    calificaciones = await dependencias.calificaciones.listarRecibidas(idPerfil);
+    perfil = await dependencias.perfiles.obtener(idPerfil);
 
   } catch (error) {
     if (!(error instanceof AppError) || error.status !== 404) {
@@ -63,8 +63,9 @@ export async function calcularPuntajePerfil(
     throw new AppError(
       404,
       'perfil_no_encontrado',
-      'Fallo en verificación de existencia del perfil y calificaciones: ' + error);
+      'Fallo en verificación de existencia del perfil: ' + error);
   }
+  const calificaciones: CalificacionVista[] = await dependencias.calificaciones.listarRecibidas(idPerfil);
   let reservas: ReservaVista[];
   let viajes_cancelados: number = 0, viajes_completados: number = 0, viajes_totales: number = 0,
     promedio: number = 0, tasa_cancelacion: number = 0, puntaje_tt: number = 0;

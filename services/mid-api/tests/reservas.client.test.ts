@@ -20,6 +20,70 @@ function opts(fetchFn: typeof fetch, gestor?: any): OpcionesClienteReservas {
   };
 }
 
+test('listarPorUsuario filtra por usuario, pagina y normaliza reservas', async () => {
+  const paginasSolicitadas: number[] = [];
+  const fetchFn: typeof fetch = async (input) => {
+    const url = new URL(String(input));
+    assert.equal(url.searchParams.get('usuarioId'), 'usr-05');
+    assert.equal(url.searchParams.get('porPagina'), '100');
+    const pagina = Number(url.searchParams.get('pagina'));
+    paginasSolicitadas.push(pagina);
+    const datos =
+      pagina === 1
+        ? Array.from({ length: 100 }, (_, indice) => ({
+            id: `res-${indice + 1}`,
+            estado: 'completada',
+            pasajero_id: 'usr-05',
+            conductor_id: 'usr-12',
+            ruta_id: 'ruta-1',
+          }))
+        : [{
+            id: 'res-101',
+            estado: 'cancelada',
+            pasajeroId: 'usr-05',
+          }];
+    return new Response(
+      JSON.stringify({ datos, total: 101, pagina, porPagina: 100 }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  };
+  const cliente = crearClienteReservas(opts(fetchFn));
+
+  const reservas = await cliente.listarPorUsuario('usr-05');
+
+  assert.deepEqual(paginasSolicitadas, [1, 2]);
+  assert.equal(reservas.length, 101);
+  assert.deepEqual(reservas[0], {
+    id: 'res-1',
+    estado: 'completada',
+    pasajeroId: 'usr-05',
+    conductorId: 'usr-12',
+    rutaId: 'ruta-1',
+  });
+  assert.deepEqual(reservas[100], {
+    id: 'res-101',
+    estado: 'cancelada',
+    pasajeroId: 'usr-05',
+  });
+});
+
+test('listarPorUsuario devuelve una lista vacía cuando no hay reservas', async () => {
+  let llamadas = 0;
+  const fetchFn: typeof fetch = async () => {
+    llamadas += 1;
+    return new Response(
+      JSON.stringify({ datos: [], total: 0, pagina: 1, porPagina: 100 }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  };
+  const cliente = crearClienteReservas(opts(fetchFn));
+
+  const reservas = await cliente.listarPorUsuario('usr-05');
+
+  assert.deepEqual(reservas, []);
+  assert.equal(llamadas, 1);
+});
+
 test('obtener normaliza snake_case incluyendo conductor_id', async () => {
   const fetchFn: typeof fetch = async () =>
     new Response(

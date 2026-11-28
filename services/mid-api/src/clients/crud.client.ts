@@ -56,11 +56,7 @@ export interface OpcionesClienteCrud {
   fetchFn?: typeof fetch;
 }
 
-function pendiente(funcion: string): Promise<never> {
-  return Promise.reject(
-    new AppError(501, 'no_implementado', `Pendiente de implementar: ${funcion}`, { funcion }),
-  );
-}
+const POR_PAGINA_CALIFICACIONES = 100;
 
 function texto(bruto: Record<string, unknown>, ...claves: string[]): string | null {
   for (const clave of claves) {
@@ -70,6 +66,85 @@ function texto(bruto: Record<string, unknown>, ...claves: string[]): string | nu
     }
   }
   return null;
+}
+
+function normalizarPerfil(bruto: unknown): PerfilVista | null {
+  if (typeof bruto !== 'object' || bruto === null) {
+    return null;
+  }
+  const b = bruto as Record<string, unknown>;
+  const id = texto(b, 'id');
+  const nombre = texto(b, 'nombre');
+  const correo = texto(b, 'correo');
+  const rol = texto(b, 'rol');
+  const activo = b['activo'];
+  if (!id || !nombre || !correo || !rol || typeof activo !== 'boolean') {
+    return null;
+  }
+  return { id, nombre, correo, rol, activo };
+}
+
+function normalizarCalificacion(bruto: unknown): CalificacionVista | null {
+  if (typeof bruto !== 'object' || bruto === null) {
+    return null;
+  }
+  const b = bruto as Record<string, unknown>;
+  const id = texto(b, 'id');
+  const estrellas = b['estrellas'];
+  const creadoEn = b['creadoEn'] ?? b['creado_en'];
+  const fechaValida =
+    (typeof creadoEn === 'string' && creadoEn !== '' && !Number.isNaN(Date.parse(creadoEn))) ||
+    (creadoEn instanceof Date && !Number.isNaN(creadoEn.getTime()));
+  if (
+    !id ||
+    typeof estrellas !== 'number' ||
+    !Number.isInteger(estrellas) ||
+    estrellas < 1 ||
+    estrellas > 5 ||
+    !fechaValida
+  ) {
+    return null;
+  }
+  return { id, estrellas, creadoEn };
+}
+
+interface ListadoCalificaciones {
+  datos: CalificacionVista[];
+  total: number;
+  pagina: number;
+  porPagina: number;
+}
+
+function normalizarListadoCalificaciones(bruto: unknown): ListadoCalificaciones | null {
+  if (typeof bruto !== 'object' || bruto === null) {
+    return null;
+  }
+  const b = bruto as Record<string, unknown>;
+  const { datos, total, pagina, porPagina } = b;
+  if (
+    !Array.isArray(datos) ||
+    typeof total !== 'number' ||
+    !Number.isInteger(total) ||
+    total < 0 ||
+    typeof pagina !== 'number' ||
+    !Number.isInteger(pagina) ||
+    pagina < 1 ||
+    typeof porPagina !== 'number' ||
+    !Number.isInteger(porPagina) ||
+    porPagina < 1
+  ) {
+    return null;
+  }
+
+  const calificaciones: CalificacionVista[] = [];
+  for (const dato of datos) {
+    const calificacion = normalizarCalificacion(dato);
+    if (!calificacion) {
+      return null;
+    }
+    calificaciones.push(calificacion);
+  }
+  return { datos: calificaciones, total, pagina, porPagina };
 }
 
 /** Normaliza la calificación creada (acepta snake_case o camelCase). */
@@ -123,14 +198,60 @@ export function crearClienteCrud(opciones: OpcionesClienteCrud): ClienteCrud {
   }
 
   return {
-    async obtenerPerfil(_id): Promise<PerfilVista> {
-      // GET /perfiles/{id} para validar el perfil en el puntaje.
-      return pendiente('obtenerPerfil');
+    async obtenerPerfil(id): Promise<PerfilVista> {
+      const respuesta = await peticion(
+        `${urlBase}/perfiles/${encodeURIComponent(id)}`,
+        'GET',
+      );
+      if (respuesta.status === 404) {
+        throw new AppError(404, 'perfil_no_encontrado', `No existe el perfil ${id}`, {
+          perfilId: id,
+        });
+      }
+      asegurarExito(respuesta, 'crud');
+
+      const perfil = normalizarPerfil(respuesta.cuerpo);
+      if (!perfil) {
+        throw new AppError(503, 'crud_no_disponible', 'El CRUD devolvió un formato inesperado', {});
+      }
+      return perfil;
     },
 
-    async listarCalificacionesRecibidas(_perfilId): Promise<CalificacionVista[]> {
-      // GET /calificaciones?paraPerfilId=… para el promedio.
-      return pendiente('listarCalificacionesRecibidas');
+    async listarCalificacionesRecibidas(perfilId): Promise<CalificacionVista[]> {
+      const calificaciones: CalificacionVista[] = [];
+      let totalPaginas = 1;
+
+      for (let pagina = 1; pagina <= totalPaginas; pagina += 1) {
+        const parametros = new URLSearchParams({
+          paraPerfilId: perfilId,
+          pagina: String(pagina),
+          porPagina: String(POR_PAGINA_CALIFICACIONES),
+        });
+        const respuesta = await peticion(`${urlBase}/calificaciones?${parametros}`, 'GET');
+        asegurarExito(respuesta, 'crud');
+
+        const listado = normalizarListadoCalificaciones(respuesta.cuerpo);
+        if (
+          !listado ||
+          listado.pagina !== pagina ||
+          listado.porPagina !== POR_PAGINA_CALIFICACIONES
+        ) {
+          throw new AppError(503, 'crud_no_disponible', 'El CRUD devolvió un formato inesperado', {});
+        }
+
+        if (pagina === 1) {
+          totalPaginas = Math.ceil(listado.total / listado.porPagina);
+        }
+        const filasEsperadas = Math.min(
+          listado.porPagina,
+          Math.max(0, listado.total - (pagina - 1) * listado.porPagina),
+        );
+        if (listado.datos.length !== filasEsperadas) {
+          throw new AppError(503, 'crud_no_disponible', 'El CRUD devolvió un formato inesperado', {});
+        }
+        calificaciones.push(...listado.datos);
+      }
+      return calificaciones;
     },
 
     async crearCalificacion(entrada): Promise<CalificacionCreada> {

@@ -29,6 +29,8 @@ export interface OpcionesClienteReservas {
   fetchFn?: typeof fetch;
 }
 
+const POR_PAGINA_RESERVAS = 100;
+
 function texto(bruto: Record<string, unknown>, ...claves: string[]): string | null {
   for (const clave of claves) {
     const valor = bruto[clave];
@@ -67,6 +69,45 @@ function normalizar(bruto: unknown): ReservaVista | null {
   };
 }
 
+interface ListadoReservas {
+  datos: ReservaVista[];
+  total: number;
+  pagina: number;
+  porPagina: number;
+}
+
+function normalizarListadoReservas(bruto: unknown): ListadoReservas | null {
+  if (typeof bruto !== 'object' || bruto === null) {
+    return null;
+  }
+  const b = bruto as Record<string, unknown>;
+  const { datos, total, pagina, porPagina } = b;
+  if (
+    !Array.isArray(datos) ||
+    typeof total !== 'number' ||
+    !Number.isInteger(total) ||
+    total < 0 ||
+    typeof pagina !== 'number' ||
+    !Number.isInteger(pagina) ||
+    pagina < 1 ||
+    typeof porPagina !== 'number' ||
+    !Number.isInteger(porPagina) ||
+    porPagina < 1
+  ) {
+    return null;
+  }
+
+  const reservas: ReservaVista[] = [];
+  for (const dato of datos) {
+    const reserva = normalizar(dato);
+    if (!reserva) {
+      return null;
+    }
+    reservas.push(reserva);
+  }
+  return { datos: reservas, total, pagina, porPagina };
+}
+
 /**
  * Cliente resiliente de Reservas (grupo C): token por Client Credentials,
  * 401 → renueva y reintenta una vez (vía `conToken`), sin reintentos ante
@@ -92,13 +133,51 @@ export function crearClienteReservas(opciones: OpcionesClienteReservas): Cliente
   }
 
   return {
-    async listarPorUsuario(_usuarioId): Promise<ReservaVista[]> {
-      // TODO (P-HU3): paginar GET /reservas?usuarioId=… para el puntaje.
-      return Promise.reject(
-        new AppError(501, 'no_implementado', 'Pendiente de implementar: listarPorUsuario', {
-          funcion: 'listarPorUsuario',
-        }),
-      );
+    async listarPorUsuario(usuarioId): Promise<ReservaVista[]> {
+      const reservas: ReservaVista[] = [];
+      let totalPaginas = 1;
+
+      for (let pagina = 1; pagina <= totalPaginas; pagina += 1) {
+        const parametros = new URLSearchParams({
+          usuarioId,
+          pagina: String(pagina),
+          porPagina: String(POR_PAGINA_RESERVAS),
+        });
+        const respuesta = await peticion(`${urlBase}/reservas?${parametros}`);
+        asegurarExito(respuesta, 'reservas');
+
+        const listado = normalizarListadoReservas(respuesta.cuerpo);
+        if (
+          !listado ||
+          listado.pagina !== pagina ||
+          listado.porPagina !== POR_PAGINA_RESERVAS
+        ) {
+          throw new AppError(
+            503,
+            'reservas_no_disponible',
+            'Reservas devolvió un formato inesperado',
+            {},
+          );
+        }
+
+        if (pagina === 1) {
+          totalPaginas = Math.ceil(listado.total / listado.porPagina);
+        }
+        const filasEsperadas = Math.min(
+          listado.porPagina,
+          Math.max(0, listado.total - (pagina - 1) * listado.porPagina),
+        );
+        if (listado.datos.length !== filasEsperadas) {
+          throw new AppError(
+            503,
+            'reservas_no_disponible',
+            'Reservas devolvió un formato inesperado',
+            {},
+          );
+        }
+        reservas.push(...listado.datos);
+      }
+      return reservas;
     },
 
     async obtener(reservaId): Promise<ReservaVista> {

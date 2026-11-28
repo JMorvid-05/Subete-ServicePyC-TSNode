@@ -38,14 +38,13 @@ test('rechaza con 401 una llamada directa sin la cabecera secreta', async () => 
   assert.ok(cuerpo.detalle);
 });
 
-test('los endpoints aún no implementados responden 501 no_implementado', async () => {
+test('GET /perfiles/:id/puntaje responde 503 si CRUD no está disponible', async () => {
   const respuesta = await fetch(`${base}/perfiles/usr-01/puntaje`, {
     headers: { 'x-gateway-secret': SECRETO },
   });
-  assert.equal(respuesta.status, 501);
-  const cuerpo = (await respuesta.json()) as { codigo: string; detalle: { funcion: string } };
-  assert.equal(cuerpo.codigo, 'no_implementado');
-  assert.equal(typeof cuerpo.detalle.funcion, 'string');
+  assert.equal(respuesta.status, 503);
+  const cuerpo = (await respuesta.json()) as { codigo: string };
+  assert.equal(cuerpo.codigo, 'crud_no_disponible');
 });
 
 test('ruta desconocida responde 404 en el formato común', async () => {
