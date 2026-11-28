@@ -61,17 +61,19 @@ export const config = {
     esperaBaseMs: numero('HTTP_ESPERA_BASE_MS', 200),
   },
 
-  /** API de tercero (analiza el texto de los comentarios). Ver ficha en README. */
-  tercero: {
-    url: process.env['TERCERO_URL'] ?? '',
-    apiKey: process.env['TERCERO_API_KEY'] ?? '',
-    timeoutMs: numero('TERCERO_TIMEOUT_MS', 2000),
-    reintentos: numero('TERCERO_REINTENTOS', 2),
-    cacheTtlS: numero('TERCERO_CACHE_TTL_S', 300),
-    //proceso en caso de fallo
-    /** Declarado en el OpenAPI: `valor_por_defecto` | `503`. */
+  /** OpenAI Moderation API (analiza el texto de los comentarios). Ver ficha en README. */
+  moderacion: {
+    url: process.env['OPENAI_MODERATION_URL'] ?? 'https://api.openai.com/v1/moderations',
+    apiKey: process.env['OPENAI_API_KEY'] ?? '',
+    model: process.env['OPENAI_MODERATION_MODEL'] ?? 'omni-moderation-latest',
+    timeoutMs: numero('OPENAI_MODERATION_TIMEOUT_MS', 5000),
+    maxReintentos: numero('OPENAI_MODERATION_MAX_RETRIES', 2),
+    cacheTtlMs: numero('OPENAI_MODERATION_CACHE_TTL_MS', 300000),
+    /** Declarado en el OpenAPI del mid-api: `permitir` (continúa marcado degradado) o `503`. */
     planDegradacion:
-      (process.env['TERCERO_PLAN_DEGRADACION'] as 'valor_por_defecto' | '503' | undefined) ??
-      'valor_por_defecto',
+      (process.env['OPENAI_MODERATION_PLAN_DEGRADACION'] as 'permitir' | '503' | undefined) ??
+      'permitir',
+    /** Umbral opcional de rechazo por puntaje (0 = desactivado). */
+    umbral: numero('OPENAI_MODERATION_FAIL_THRESHOLD', 0),
   },
 } as const;

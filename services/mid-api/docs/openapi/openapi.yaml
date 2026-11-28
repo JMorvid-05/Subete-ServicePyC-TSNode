@@ -13,26 +13,15 @@ info:
     2. `POST /calificaciones/validadas` — califica solo viajes reales y
        completados, validando la reserva con el grupo Reservas.
 
-    TODO (cada integrante completa su parte):
-    - Documentar los cuerpos, respuestas y códigos de error de cada operación.
-    - Agregar los schemas de `components/schemas` (PuntajePerfil,
-      ResultadoValidacion, etc.).
-
-    ## Dependencias
-
-    | Vecino | Uso | Alcance |
-    | --- | --- | --- |
-    | crud-api (nuestro grupo) | perfiles y calificaciones | `perfiles:leer` |
-    | API Reservas (grupo C) | historial de reservas y estados | `reservas:leer` |
-    | API de tercero | análisis de texto de comentarios | ver ficha del README |
-
     Reglas de integración obligatorias del clúster:
     - Cabecera `X-Gateway-Secret` (401 sin ella, salvo `/health`).
     - Formato de error común: `{ "codigo": "...", "mensaje": "...", "detalle": {} }`.
     - 401 del vecino → renueva token y reintenta 1 vez; luego 503.
     - Vecino caído (503/timeout/red) → 503 `<contexto>_no_disponible`.
-    - API de tercero: plan de degradación declarado (`valor_por_defecto` o `503`);
-      nunca bloquea la calificación si es `valor_por_defecto`.
+    - OpenAI Moderation API: modera el comentario; si falla/timeout/agota reintentos
+      aplica el plan de degradación (`permitir` → continúa marcado como degradado;
+      `503` → 503 `moderacion_no_disponible`). Nunca bloquea la calificación si
+      el plan es `permitir`. Nunca expone la API key ni detalles del proveedor.
   contact:
     name: Grupo B — Pasajeros y reputación (Clúster Súbete)
 servers:
@@ -92,10 +81,11 @@ paths:
       operationId: calificarViajeValidada
       summary: Califica un viaje completado validando contra Reservas
       description: |
-        TODO (P-HU4): 1) reserva existe → si no 404 `reserva_no_encontrada`;
+        1) reserva existe → si no 404 `reserva_no_encontrada`;
         2) estado `completada` → si no 409 `reserva_no_completada`;
         3) ambos perfiles participantes → si no 403 `no_participante`;
-        4) analiza el comentario con el API de tercero (plan de degradación);
+        4) si hay comentario, se modera con OpenAI Moderation API: inapropiado → 400 `comentario_no_permitido`;
+           si OpenAI falla, plan de degradación (`permitir` → continúa marcado como degradado; `503` → 503);
         5) crea la calificación en el crud-api → 201.
       tags: [Calificaciones]
       security:
@@ -105,13 +95,30 @@ paths:
         required: true
         content:
           application/json:
-            schema: { type: object }
+            schema:
+              type: object
+              required: [reservaId, deId, paraId, estrellas]
+              properties:
+                reservaId: { type: string, examples: ['res-0001'] }
+                deId: { type: string, examples: ['usr-12'] }
+                paraId: { type: string, examples: ['usr-05'] }
+                estrellas: { type: integer, minimum: 1, maximum: 5, examples: [4] }
+                comentario: { type: string, maxLength: 500 }
       responses:
         '201':
-          description: Calificación creada (con el análisis del comentario)
+          description: Calificación creada
           content:
             application/json:
-              schema: { type: object }
+              schema:
+                type: object
+                required: [id, reservaId, dePerfilId, paraPerfilId, estrellas]
+                properties:
+                  id: { type: string }
+                  reservaId: { type: string }
+                  dePerfilId: { type: string }
+                  paraPerfilId: { type: string }
+                  estrellas: { type: integer, minimum: 1, maximum: 5 }
+                  comentario: { type: string }
         '400': { $ref: '#/components/responses/Error400' }
         '401': { $ref: '#/components/responses/Error401' }
         '403': { $ref: '#/components/responses/Error403' }
@@ -159,7 +166,7 @@ components:
 
   responses:
     Error400:
-      description: Datos inválidos (formato común)
+      description: Datos inválidos
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorComun' }
@@ -174,17 +181,17 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorComun' }
     Error404:
-      description: Recurso no encontrado (formato común)
+      description: Recurso no encontrado
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorComun' }
     Error409:
-      description: Conflicto de negocio (formato común)
+      description: Conflicto de negocio
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorComun' }
     Error503:
-      description: Vecino no disponible (formato común)
+      description: Vecino no disponible
       content:
         application/json:
           schema: { $ref: '#/components/schemas/ErrorComun' }

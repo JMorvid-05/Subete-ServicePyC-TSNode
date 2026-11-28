@@ -1,4 +1,4 @@
-import { pendiente } from '../../middleware/errores.js';
+import { AppError } from '../../middleware/errores.js';
 
 export interface CalificacionValidadaEntrada {
   reservaId: string;
@@ -8,46 +8,78 @@ export interface CalificacionValidadaEntrada {
   comentario?: string;
 }
 
-/**
- * TODO (P-HU4): valida el cuerpo de POST /calificaciones/validadas:
- *   { reservaId, deId, paraId, estrellas, comentario }
- *   - ids con formato válido
- *   - estrellas: entero de 1 a 5 (si no, 400 `datos_invalidos`)
- *   - comentario opcional, máximo 500 caracteres
- */
+const RE_ID = /^[A-Za-z0-9_-]{1,60}$/;
 
-// se compara el tipo de dato que tiene el argumento, después se valida cada uno de los
-//atributos hasta que se retorna el objeto con esa interfaz
+/**
+ * Valida el cuerpo de POST /calificaciones/validadas:
+ *   { reservaId, deId, paraId, estrellas, comentario }
+ * estrellas debe ser un entero de 1 a 5.
+ * deId y paraId deben ser distintos (nadie se califica a sí mismo).
+ */
 export function parsearCalificacionValidada(cuerpo: unknown): CalificacionValidadaEntrada {
-  if (typeof cuerpo !== 'object') {
-    throw new Error("El cuerpo de la petición es inválido");
+  if (typeof cuerpo !== 'object' || cuerpo === null) {
+    throw new AppError(400, 'datos_invalidos', 'Los datos enviados no son válidos', {
+      errores: ['El cuerpo debe ser un objeto JSON'],
+    });
   }
-  const calificacion = cuerpo as CalificacionValidadaEntrada;
+
+  const { reservaId, deId, paraId, estrellas, comentario } = cuerpo as Record<string, unknown>;
+  const errores: string[] = [];
+
+  for (const [campo, valor] of [
+    ['reservaId', reservaId],
+    ['deId', deId],
+    ['paraId', paraId],
+  ] as const) {
+    if (typeof valor !== 'string' || !RE_ID.test(valor)) {
+      errores.push(`${campo}: requerido, formato de id válido`);
+    }
+  }
+
   if (
-    typeof calificacion.reservaId !== 'string'
-    || typeof calificacion.deId !== 'string'
-    || typeof calificacion.paraId !== 'string'
+    typeof estrellas !== 'number' ||
+    !Number.isInteger(estrellas) ||
+    estrellas < 1 ||
+    estrellas > 5
   ) {
-    throw new Error("Error en tipo de dato para los id");
+    errores.push('estrellas: debe ser un entero entre 1 y 5');
   }
-  if (typeof calificacion.estrellas !== 'number') {
-    throw new Error("Error en tipo de dato para las estrellas");
-  } else if (!Number.isInteger(calificacion.estrellas * 10)
-    || Number(calificacion.estrellas) >= 1.0 && Number(calificacion.estrellas <= 5.0)) {
-    throw new Error("Error en valores de estrellas");
+
+  if (errores.length > 0) {
+    throw new AppError(400, 'datos_invalidos', 'Los datos enviados no son válidos', { errores });
   }
-  if (typeof calificacion.comentario !== 'string') {
-    throw new Error("Error en tipo de dato para comentario");
-  } else if (calificacion.comentario.toString().length < 500) {
-    throw new Error("Error en longitud de comentario");
+
+  // Auto-calificación: código propio del clúster, más preciso que datos_invalidos.
+  if (deId === paraId) {
+    throw new AppError(400, 'auto_calificacion', 'No puedes calificarte a ti mismo', {
+      deId,
+      paraId,
+    });
   }
-  return calificacion;
+
+  const entrada: CalificacionValidadaEntrada = {
+    reservaId: reservaId as string,
+    deId: deId as string,
+    paraId: paraId as string,
+    estrellas: estrellas as number,
+  };
+  if (typeof comentario === 'string' && comentario.trim() !== '') {
+    if (comentario.length > 500) {
+      throw new AppError(400, 'datos_invalidos', 'Los datos enviados no son válidos', {
+        errores: ['comentario: debe ser un texto de máximo 500 caracteres'],
+      });
+    }
+    entrada.comentario = comentario.trim();
+  }
+  return entrada;
 }
 
-/** TODO: valida el {id} de la ruta (acepta `unknown` por la tipación de Express). */
+/** Valida el {id} de la ruta (acepta `unknown` por la tipación de Express). */
 export function parsearId(valor: unknown): string {
-  if (typeof valor !== 'string') {
-    throw new Error("el tipo de dato de la query es inválido");
+  if (typeof valor !== 'string' || !RE_ID.test(valor)) {
+    throw new AppError(400, 'datos_invalidos', 'Los datos enviados no son válidos', {
+      errores: ['id: no tiene un formato válido'],
+    });
   }
-  return valor as string;
+  return valor;
 }
