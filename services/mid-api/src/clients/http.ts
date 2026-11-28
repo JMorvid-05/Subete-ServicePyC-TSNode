@@ -11,7 +11,7 @@ export interface OpcionesPeticion {
   reintentos?: number;
   /** Espera base del backoff exponencial entre intentos (ms). */
   esperaBaseMs?: number;
-  /** Inyección para pruebas (mock del tercero o de los vecinos). */
+  /** Inyección para pruebas (mock de OpenAI Moderation o de los vecinos). */
   fetchFn?: typeof fetch;
 }
 
@@ -87,9 +87,12 @@ export async function enviar(opciones: OpcionesPeticion): Promise<Respuesta> {
 
       const texto = await respuesta.text();
       const salida: Respuesta = { status: respuesta.status, cuerpo: parsearCuerpo(texto) };
-      if (respuesta.status === 503 && intento < reintentos) {
-        ultimoError = new AppError(503, 'upstream_no_disponible', 'El servicio upstream respondió 503', {
+      // Reintentos limitados ante 5xx (incluye 503) y fallas de red:
+      // los 4xx son respuestas de negocio/permisos y no se reintentan.
+      if (respuesta.status >= 500 && respuesta.status < 600 && intento < reintentos) {
+        ultimoError = new AppError(503, 'upstream_no_disponible', 'El servicio upstream respondió con error', {
           origen: rutaSegura(url),
+          status: respuesta.status,
         });
         await espera(esperaBaseMs * 2 ** intento);
         continue;

@@ -26,6 +26,9 @@ function crearDeps(overrides: Partial<DependenciasValidacion> = {}): Dependencia
       crearCalificacion: async (entrada) =>
         ({ id: 'cal-0001', ...entrada }) as CalificacionCreada,
     },
+    moderacion: {
+      moderar: async () => ({ flagged: false, categorias: {}, puntajes: {}, degradado: false }),
+    },
     ...overrides,
   };
 }
@@ -186,19 +189,72 @@ test('calificarViajeValidada: propagación de 503 de Reservas', async () => {
   }
 });
 
-test('calificarViajeValidada: reserva sin conductor_id → 403 no_participante', async () => {
+test('calificarViajeValidada: comentario marcado inapropiado → 400 comentario_no_permitido', async () => {
   const deps = crearDeps({
-    reservas: { obtener: async () => ({ id: 'res-0001', estado: 'completada', pasajeroId: 'usr-12' }) },
+    moderacion: {
+      moderar: async () => ({ flagged: true, categorias: { hate: true }, puntajes: { hate: 0.9 }, degradado: false }),
+    },
   });
   try {
     await calificarViajeValidada(
-      { reservaId: 'res-0001', deId: 'usr-12', paraId: 'usr-05', estrellas: 4 },
+      { reservaId: 'res-0001', deId: 'usr-12', paraId: 'usr-05', estrellas: 4, comentario: 'texto ofensivo' },
       deps,
     );
     assert.fail('debía lanzar');
   } catch (err) {
     assert.ok(err instanceof AppError);
-    assert.equal(err.status, 403);
-    assert.equal(err.codigo, 'no_participante');
+    assert.equal(err.status, 400);
+    assert.equal(err.codigo, 'comentario_no_permitido');
   }
+});
+
+test('calificarViajeValidada: moderación degradada (plan permitir) → continúa y crea', async () => {
+  const deps = crearDeps({
+    moderacion: {
+      moderar: async () => ({ flagged: false, categorias: {}, puntajes: {}, degradado: true }),
+    },
+  });
+  const resultado = await calificarViajeValidada(
+    { reservaId: 'res-0001', deId: 'usr-12', paraId: 'usr-05', estrellas: 4, comentario: 'hola' },
+    deps,
+  );
+  assert.equal(resultado.id, 'cal-0001');
+});
+
+test('calificarViajeValidada: moderación 503 (plan 503) se propaga', async () => {
+  const deps = crearDeps({
+    moderacion: {
+      moderar: async () => {
+        throw new AppError(503, 'moderacion_no_disponible', 'OpenAI no disponible', {});
+      },
+    },
+  });
+  try {
+    await calificarViajeValidada(
+      { reservaId: 'res-0001', deId: 'usr-12', paraId: 'usr-05', estrellas: 4, comentario: 'hola' },
+      deps,
+    );
+    assert.fail('debía lanzar');
+  } catch (err) {
+    assert.ok(err instanceof AppError);
+    assert.equal(err.status, 503);
+    assert.equal(err.codigo, 'moderacion_no_disponible');
+  }
+});
+
+test('calificarViajeValidada: sin comentario no llama a moderación', async () => {
+  let llamadas = 0;
+  const deps = crearDeps({
+    moderacion: {
+      moderar: async () => {
+        llamadas += 1;
+        return { flagged: false, categorias: {}, puntajes: {}, degradado: false };
+      },
+    },
+  });
+  await calificarViajeValidada(
+    { reservaId: 'res-0001', deId: 'usr-12', paraId: 'usr-05', estrellas: 4 },
+    deps,
+  );
+  assert.equal(llamadas, 0);
 });

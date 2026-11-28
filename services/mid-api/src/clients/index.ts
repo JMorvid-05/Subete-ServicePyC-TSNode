@@ -4,8 +4,8 @@ import { crearClienteReservas, type ClienteReservas } from './reservas.client.js
 import { opcionesReservasDesdeConfig } from './reservas.client.js';
 import { crearClienteCrud, type ClienteCrud } from './crud.client.js';
 import { opcionesCrudDesdeConfig } from './crud.client.js';
-import { crearClienteTercero, type ClienteTercero } from './tercero.client.js';
-import { opcionesTerceroDesdeConfig } from './tercero.client.js';
+import { crearClienteModeracion, type ClienteModeracion } from './openai.moderation.client.js';
+import { opcionesModeracionDesdeConfig } from './openai.moderation.client.js';
 
 /**
  * Fábricas singleton de los clientes del mid-api.
@@ -16,7 +16,7 @@ import { opcionesTerceroDesdeConfig } from './tercero.client.js';
 let gestor: GestorTokens | null = null;
 let reservas: ClienteReservas | null = null;
 let crud: ClienteCrud | null = null;
-let tercero: ClienteTercero | null = null;
+let moderacion: ClienteModeracion | null = null;
 
 export function clienteTokens(): GestorTokens {
   gestor ??= crearGestorTokens({
@@ -39,7 +39,7 @@ export function clienteCrud(): ClienteCrud {
   return crud;
 }
 
-export function clienteTercero(): ClienteTercero {
-  tercero ??= crearClienteTercero(opcionesTerceroDesdeConfig());
-  return tercero;
+export function clienteModeracion(): ClienteModeracion {
+  moderacion ??= crearClienteModeracion(opcionesModeracionDesdeConfig());
+  return moderacion;
 }

@@ -51,7 +51,7 @@ export function manejadorErrores(
     return;
   }
 
-  // Sin filtrar información interna (ni stack, ni mensajes de terceros).
+  // Sin filtrar información interna (ni stack, ni mensajes del proveedor).
   console.error('[error_interno]', err);
   res.status(500).json({
     codigo: 'error_interno',

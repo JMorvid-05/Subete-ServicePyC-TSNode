@@ -9,8 +9,6 @@ Este repositorio contiene **dos servicios independientes**:
 | `services/crud-api` | API CRUD | Perfiles y calificaciones, con su PostgreSQL propio |
 | `services/mid-api` | API MID | Puntaje de confianza e insignias; calificaciones validadas contra Reservas |
 
-> **Estado:** esqueleto de proyecto con el primer endpoint funcional. `POST /calificaciones/validadas` ya está implementado (validación de entrada, consulta a Reservas, reglas de estado/participantes y creación en el CRUD); el resto de las funciones de negocio siguen marcadas con `// TODO` y responden `501 no_implementado` para que cada integrante implemente su parte (puntaje P-HU3, etc.).
-
 ---
 
 ## Índice
@@ -35,7 +33,7 @@ Este repositorio contiene **dos servicios independientes**:
 Construimos **dos microservicios separados** (`crud-api` y `mid-api`) en lugar de un monolito o un solo despliegue acoplado, porque:
 
 - **Aíslan responsabilidades:** el CRUD es dueño de los datos (perfiles y calificaciones en PostgreSQL); el MID no es dueño de datos básicos: aplica reglas de negocio combinando llamadas a otros servicios.
-- **Aíslan dependencias:** el CRUD solo necesita `express` y `pg`; el MID necesita clientes HTTP resilientes, tokens y un cliente del API de tercero. Una vulnerabilidad o actualización en uno no afecta al otro.
+- **Aíslan dependencias:** el CRUD solo necesita `express` y `pg`; el MID necesita clientes HTTP resilientes, tokens y el cliente de OpenAI Moderation. Una vulnerabilidad o actualización en uno no afecta al otro.
 - **Aíslan ciclos de despliegue y escalado:** cada servicio tiene su propia imagen Docker, su propia URL estable y su propio ciclo de publicación. Si solo cambian las reglas de reputación, se redespliega únicamente el MID.
 - **Permite fallos controlados:** si el MID se cae, el CRUD sigue sirviendo perfiles (y viceversa); el MID degrada según su plan de degradación.
 
@@ -48,7 +46,7 @@ Nos integramos con el resto del clúster Súbete mediante **contratos OpenAPI** 
 ```mermaid
 flowchart TB
     CLI["Cliente / demostración"]
-    EXT["API de tercero<br/>(análisis de comentarios)"]
+    EXT["OpenAI Moderation<br/>(análisis de comentarios)"]
 
     subgraph CLUSTER["Clúster Súbete"]
         GW{{"API Gateway<br/>tokens JWT + alcances<br/>cabecera secreta X-Gateway-Secret"}}
@@ -112,17 +110,17 @@ Subete-ServicePyC-TSNode/
 │   └── mid-api/                    # Servicio MID: puntaje de confianza y calificaciones validadas
 │       ├── docs/openapi/           # Contrato OpenAPI de la API MID (incluye plan de degradación)
 │       ├── src/
-│       │   ├── config/             # env.ts: gateway, URLs de vecinos, alcances, HTTP y tercero
+│       │   ├── config/             # env.ts: gateway, URLs de vecinos, alcances, HTTP y OpenAI Moderation
 │       │   ├── middleware/         # Igual que el CRUD (cada servicio es autónomo)
 │       │   ├── clients/            # http.ts (timeout/reintentos), tokens.ts (401 → renueva y reintenta),
-│       │   │                       # reservas.client.ts, crud.client.ts, tercero.client.ts (caché + degradación)
+│       │   │                       # reservas.client.ts, crud.client.ts, openai.moderation.client.ts (caché + degradación)
 │       │   ├── modules/
 │       │   │   ├── comunes/        # validaciones compartidas de cuerpos y parámetros
 │       │   │   ├── puntaje/        # reputacion.ts (reglas puras) + servicio, controller y rutas
 │       │   │   └── calificaciones-validadas/  # reglas de P-HU4
 │       │   ├── app.ts
 │       │   └── server.ts
-│       ├── tests/                  # reglas del MID, mocks de Reservas/CRUD/tercero, token 401
+│       ├── tests/                  # reglas del MID, mocks de Reservas/CRUD/OpenAI Moderation, token 401
 │       ├── Dockerfile
 │       └── package.json
 ├── .env.example                    # Plantilla de variables de entorno (sin secretos reales)
@@ -172,7 +170,7 @@ Reglas clave (historias P-HU1 y P-HU2):
 5. Insignia: **`nuevo`** (< 5 viajes completados, manda sobre el puntaje) → **`confiable`** (puntaje ≥ 4.5 y tasa < 10%) → **`en_observacion`** (puntaje < 3.5 o tasa > 30%) → **`regular`** (el resto).
 6. **Si Reservas no responde → `503`** (no se calcula un puntaje incompleto).
 
-**Reglas de `POST /calificaciones/validadas` (P-HU4):** recibe `{ reservaId, deId, paraId, estrellas, comentario }` y, en orden: reserva inexistente → `404`; estado distinto de `completada` → `409 reserva_no_completada`; perfiles que no participaron → `403 no_participante`; si todo está bien, crea la calificación en el crud-api → `201`. (El análisis del comentario con un API de tercero queda pendiente de definir el proveedor.)
+**Reglas de `POST /calificaciones/validadas` (P-HU4):** recibe `{ reservaId, deId, paraId, estrellas, comentario }` y, en orden: reserva inexistente → `404`; estado distinto de `completada` → `409 reserva_no_completada`; perfiles que no participaron → `403 no_participante`; si hay comentario, se modera con OpenAI Moderation API (inapropiado → `400 comentario_no_permitido`; si OpenAI falla, plan de degradación); si todo está bien, crea la calificación en el crud-api → `201`.
 
 **Consumo resiliente:** token Client Credentials cacheado con renovación proactiva; ante **401 renueva y reintenta una sola vez**; **403** no se reintenta (error de permisos); **404/409/400** se propagan como negocio; **503, timeouts y red caída** se reintentan con límite y se traducen al error común.
 
@@ -213,7 +211,7 @@ Dentro del clúster Súbete, **al menos un grupo debe usar un lenguaje y un fram
 | `tsx` | desarrollo | Ejecución de TS en desarrollo y pruebas |
 | `@types/express`, `@types/node` | desarrollo | Tipos |
 
-El MID **no necesita un driver de base de datos**: solo consume APIs por HTTP. Las pruebas usan el runner de pruebas nativo de Node (`node:test` + `node:assert`) — sin dependencias extra — con **inyección de dependencias** para mockear Reservas, el CRUD y el API de tercero. El linter de OpenAPI (`@stoplight/spectral-cli`) lo descarga `npx` en el pipeline, sin fijarlo como dependencia.
+El MID **no necesita un driver de base de datos**: solo consume APIs por HTTP. Las pruebas usan el runner de pruebas nativo de Node (`node:test` + `node:assert`) — sin dependencias extra — con **inyección de dependencias** para mockear Reservas, el CRUD y OpenAI Moderation. El linter de OpenAPI (`@stoplight/spectral-cli`) lo descarga `npx` en el pipeline, sin fijarlo como dependencia.
 
 ---
 
@@ -232,9 +230,14 @@ Toda la configuración sale de variables de entorno: **no hay URLs ni secretos h
 | `SCOPE_LEER`, `SCOPE_ESCRIBIR`, `SCOPE_RESERVAS` | mid-api | Alcances que el gateway valida en nuestro token |
 | `HTTP_TIMEOUT_MS`, `HTTP_REINTENTOS`, `HTTP_ESPERA_BASE_MS` | mid-api | Tiempo máximo, reintentos limitados y backoff de los consumos |
 | `TOKEN_MARGEN_VENCIMIENTO_S` | mid-api | Margen para renovar el token antes de vencer |
-| `TERCERO_URL`, `TERCERO_API_KEY` | mid-api | URL y credencial del API de tercero |
-| `TERCERO_TIMEOUT_MS`, `TERCERO_REINTENTOS`, `TERCERO_CACHE_TTL_S` | mid-api | Timeout, reintentos y caché del tercero |
-| `TERCERO_PLAN_DEGRADACION` | mid-api | `valor_por_defecto` o `503` (plan declarado en el OpenAPI) |
+| `OPENAI_API_KEY` | mid-api | Credencial (Bearer token) de OpenAI para la Moderation API (en GitHub Secrets/producción) |
+| `OPENAI_MODERATION_URL` | mid-api | Endpoint de moderación (ej. `https://api.openai.com/v1/moderations`) |
+| `OPENAI_MODERATION_MODEL` | mid-api | Modelo de moderación (ej. `omni-moderation-latest`) |
+| `OPENAI_MODERATION_TIMEOUT_MS` | mid-api | Tiempo máximo de espera por petición |
+| `OPENAI_MODERATION_MAX_RETRIES` | mid-api | Reintentos limitados ante 5xx/red/timeout |
+| `OPENAI_MODERATION_CACHE_TTL_MS` | mid-api | TTL de caché para no reconsultar textos ya evaluados |
+| `OPENAI_MODERATION_PLAN_DEGRADACION` | mid-api | `permitir` (continúa marcado como degradado) o `503` |
+| `OPENAI_MODERATION_FAIL_THRESHOLD` | mid-api | Umbral opcional de rechazo por puntaje (0 = desactivado) |
 
 En producción los valores se definen como **secretos y variables seguros** de la plataforma (GitHub Secrets y configuración del servicio en Azure), nunca en el repositorio.
 
@@ -288,7 +291,7 @@ docker run --env-file .env -p 3002:3002 subete-mid-api
 
 ```bash
 cd services/crud-api && npm test     # 5 pruebas (esqueleto)
-cd services/mid-api  && npm test     # 46 pruebas
+cd services/mid-api  && npm test     # 58 pruebas
 ```
 
 Ambos pipelines las corren con `npm test` (runner nativo `node:test`, sin salir a internet). El MID usa el runner nativo en lugar de Vitest/Jest para mantener el pipeline homogéneo (`npm test` en CI) y evitar dependencias extra.
@@ -300,12 +303,13 @@ Ambos pipelines las corren con `npm test` (runner nativo `node:test`, sin salir 
 **`mid-api`** — `POST /calificaciones/validadas` implementado + infraestructura:
 
 - `validaciones.test.ts`: validación de entrada (ids, estrellas 1–5, auto-calificación → 400 `auto_calificacion`, comentario ≤ 500).
-- `calificacionesValidadas.service.test.ts`: 201 pasajero→conductor y conductor→pasajero, 404, 409 `reserva_no_completada` (pendiente/confirmada/cancelada), 403 `no_participante`, propagación de 409 del CRUD y 503 de Reservas.
+- `calificacionesValidadas.service.test.ts`: 201 pasajero→conductor y conductor→pasajero, 404, 409 `reserva_no_completada` (pendiente/confirmada/cancelada), 403 `no_participante`, propagación de 409 del CRUD y 503 de Reservas, 400 `comentario_no_permitido` si está marcado, degradación (plan `permitir`) continúa y crea, moderación 503 se propaga, sin comentario no llama a moderación.
+- `openai.moderation.client.test.ts`: comentario aprobado, rechazado (`flagged`), acierto de caché (incluyendo texto normalizado), umbral de puntaje, red caída con plan `permitir` (degradado, sin cachear) y plan `503`, sin API key, formato inesperado, reintentos ante 5xx y no filtrado de la API key.
 - `tokens.test.ts`: token cacheado, renovación con `forzar`, fallo → 503 `token_no_disponible`, y **401 → renueva y reintenta una sola vez**.
 - `http.test.ts`: éxito, reintento ante 503, sin reintento ante 4xx, timeout → `tiempo_excedido`, red caída → `red_no_disponible`.
 - `reservas.client.test.ts`: normalización snake/camel incluyendo `conductor_id`, 404 → `reserva_no_encontrada`, red caída → `reservas_no_disponible`, 401 → renueva y reintenta.
 - `crud.client.test.ts`: creación 201 mapeada, propagación de 409/400, red caída → `crud_no_disponible`.
-- `api.test.ts`: `/health`, 401, 404, 400 sin red y **503 `reservas_no_disponible`** cuando Reservas no responde.
+- `api.test.ts`: `/health`, 401, 404, 400 sin red, 400 auto-calificación, `comentario_no_permitido` (mock OpenAI flagged) y 503 `reservas_no_disponible` cuando Reservas no responde.
 
 ---
 
@@ -342,7 +346,6 @@ Se activa solo con `pull_request.closed` **y** `merged == true` contra `main`:
 | `ACA_CRUD_API` / `ACA_MID_API` | variable | Nombre de cada servicio desplegado |
 | `CRUD_API_URL` / `MID_API_URL` | variable | URL estable de cada servicio para la prueba de humo |
 
-_(La plataforma exacta se documenta aquí cuando el grupo la cierre: Azure Container Apps es la propuesta por defecto; se justifica en la sección de despliegue del repositorio del clúster.)_
 
 ---
 
@@ -367,16 +370,23 @@ _(La plataforma exacta se documenta aquí cuando el grupo la cierre: Azure Conta
 
 ## 11. Ficha del API de tercero
 
-> **Estado: plantilla para completar** en los primeros días del proyecto (sección 6 del enunciado). La categoría sugerida para nuestro grupo es *validación de correo/datos* o *análisis de texto de comentarios*; el cliente del MID ya está preparado para consumirlo con timeout, reintentos, caché y plan de degradación.
+**API elegida: OpenAI Moderation API** — analiza el texto de los comentarios de las calificaciones para detectar contenido ofensivo, sexual, de odio, autolesiones, etc.
 
 | Campo | Contenido |
 | --- | --- |
-| **Nombre y enlace a la documentación** | _(por completar)_ |
-| **Qué hace y por qué lo elegimos** | Analiza el texto de los comentarios de las calificaciones para detectar contenido ofensivo o spam _(justificar la elección con la comparación hecha)_ |
-| **Límites y condiciones de uso** | _(por completar: rate limit, atribución, identificación de la aplicación)_ |
-| **Costo** | _(por completar: plan gratuito / crédito de estudiante)_ |
-| **Autenticación** | _(por completar: API key en header `Authorization`, ya soportada por el cliente)_ |
-| **Qué pasa si falla / plan de degradación** | **Definido:** por defecto responde con valor por defecto `{ etiqueta: "desconocido", confianza: 0, degradado: true }`; alternativamente `TERCERO_PLAN_DEGRADACION=503` → `503 tercero_no_disponible`. Declarado en el OpenAPI del MID; probado con mocks en `tests/tercero.client.test.ts` |
+| **Nombre y enlace a la documentación** | OpenAI Moderation API — https://platform.openai.com/docs/guides/moderation |
+| **Qué hace y por qué lo elegimos** | Recibe un texto y devuelve `flagged` (boolean) más las categorías y puntajes. Lo elegimos porque es un servicio gestionado, sin infraestructura propia, con un endpoint simple (POST `/v1/moderations`) y un modelo (`omni-moderation-latest`) que cubre las categorías relevantes para comentarios de usuarios. |
+| **Límites y condiciones de uso** | Rate limits por cuenta de OpenAI; requiere `OPENAI_API_KEY`. Se respeta con timeout, reintentos limitados y caché por texto (TTL configurable). |
+| **Costo** | Gratuito para el endpoint de moderación (según la cuenta de OpenAI). |
+| **Autenticación** | Bearer token: `Authorization: Bearer ${OPENAI_API_KEY}`, enviado por el cliente en `src/clients/openai.moderation.client.ts`. |
+| **Qué pasa si falla / plan de degradación** | Configurable con `OPENAI_MODERATION_PLAN_DEGRADACION`: `permitir` (por defecto) → la calificación continúa y la moderación queda marcada como `degradado: true`; `503` → responde `503 moderacion_no_disponible`. Declarado en el OpenAPI del MID. Las fallas no se cachean (el siguiente intento reintenta). Probado con mocks en `tests/openai.moderation.client.test.ts`. |
+| **Variables de entorno** | `OPENAI_API_KEY`, `OPENAI_MODERATION_URL`, `OPENAI_MODERATION_MODEL`, `OPENAI_MODERATION_TIMEOUT_MS`, `OPENAI_MODERATION_MAX_RETRIES`, `OPENAI_MODERATION_CACHE_TTL_MS`, `OPENAI_MODERATION_PLAN_DEGRADACION`, `OPENAI_MODERATION_FAIL_THRESHOLD`. |
+
+**Implementación en el código:**
+- `src/clients/openai.moderation.client.ts`: `crearClienteModeracion` — POST al endpoint, timeout (`AbortController`), reintentos limitados, caché en memoria por hash SHA-256 del texto normalizado (TTL), plan de degradación, rechazo por `flagged: true` o por umbral de puntaje (`OPENAI_MODERATION_FAIL_THRESHOLD`).
+- `src/modules/calificaciones-validadas/calificacionesValidadas.service.ts`: si hay `comentario` no vacío, se modera; si `flagged` → `400 comentario_no_permitido`; si OpenAI falla, se aplica el plan de degradación.
+- `src/config/env.ts`: bloque `moderacion` centralizado.
+- `clients/index.ts`: fábrica perezosa `clienteModeracion()`.
 
 ---
 

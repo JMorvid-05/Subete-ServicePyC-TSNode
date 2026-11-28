@@ -18,8 +18,10 @@ info:
     - Formato de error común: `{ "codigo": "...", "mensaje": "...", "detalle": {} }`.
     - 401 del vecino → renueva token y reintenta 1 vez; luego 503.
     - Vecino caído (503/timeout/red) → 503 `<contexto>_no_disponible`.
-    - API de tercero: integración pendiente de definir el proveedor (no se usa en este flujo aún).
-      nunca bloquea la calificación si es `valor_por_defecto`.
+    - OpenAI Moderation API: modera el comentario; si falla/timeout/agota reintentos
+      aplica el plan de degradación (`permitir` → continúa marcado como degradado;
+      `503` → 503 `moderacion_no_disponible`). Nunca bloquea la calificación si
+      el plan es `permitir`. Nunca expone la API key ni detalles del proveedor.
   contact:
     name: Grupo B — Pasajeros y reputación (Clúster Súbete)
 servers:
@@ -82,7 +84,9 @@ paths:
         1) reserva existe → si no 404 `reserva_no_encontrada`;
         2) estado `completada` → si no 409 `reserva_no_completada`;
         3) ambos perfiles participantes → si no 403 `no_participante`;
-        4) crea la calificación en el crud-api → 201.
+        4) si hay comentario, se modera con OpenAI Moderation API: inapropiado → 400 `comentario_no_permitido`;
+           si OpenAI falla, plan de degradación (`permitir` → continúa marcado como degradado; `503` → 503);
+        5) crea la calificación en el crud-api → 201.
       tags: [Calificaciones]
       security:
         - bearerAuth: []
