@@ -8,7 +8,7 @@ import { crearClienteTercero, type ClienteTercero } from './tercero.client.js';
 import { opcionesTerceroDesdeConfig } from './tercero.client.js';
 
 /**
- * Fábricas perezosas (singleton) de los clientes del mid-api.
+ * Fábricas singleton de los clientes del mid-api.
  * Se crean al primer uso: las pruebas inyectan sus propias dependencias
  * y nunca tocan estos objetos.
  */

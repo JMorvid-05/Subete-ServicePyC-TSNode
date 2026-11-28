@@ -9,7 +9,7 @@ Este repositorio contiene **dos servicios independientes**:
 | `services/crud-api` | API CRUD | Perfiles y calificaciones, con su PostgreSQL propio |
 | `services/mid-api` | API MID | Puntaje de confianza e insignias; calificaciones validadas contra Reservas |
 
-> **Estado:** esqueleto de proyecto. La estructura, el middleware (cabecera del gateway, formato de error común), `app.ts`/`server.ts`, las migraciones y los contratos OpenAPI están listos; las funciones de negocio están marcadas con `// TODO` y responden `501 no_implementado` para que cada integrante implemente su parte.
+> **Estado:** esqueleto de proyecto con el primer endpoint funcional. `POST /calificaciones/validadas` ya está implementado (validación de entrada, consulta a Reservas, reglas de estado/participantes y creación en el CRUD); el resto de las funciones de negocio siguen marcadas con `// TODO` y responden `501 no_implementado` para que cada integrante implemente su parte (puntaje P-HU3, etc.).
 
 ---
 
@@ -172,7 +172,7 @@ Reglas clave (historias P-HU1 y P-HU2):
 5. Insignia: **`nuevo`** (< 5 viajes completados, manda sobre el puntaje) → **`confiable`** (puntaje ≥ 4.5 y tasa < 10%) → **`en_observacion`** (puntaje < 3.5 o tasa > 30%) → **`regular`** (el resto).
 6. **Si Reservas no responde → `503`** (no se calcula un puntaje incompleto).
 
-**Reglas de `POST /calificaciones/validadas` (P-HU4):** recibe `{ reservaId, deId, paraId, estrellas, comentario }` y, en orden: reserva inexistente → `404`; estado distinto de `completada` → `409 reserva_no_completada`; perfiles que no participaron → `403 no_participante`; si todo está bien, analiza el comentario con el API de tercero y **crea la calificación en el crud-api** → `201`.
+**Reglas de `POST /calificaciones/validadas` (P-HU4):** recibe `{ reservaId, deId, paraId, estrellas, comentario }` y, en orden: reserva inexistente → `404`; estado distinto de `completada` → `409 reserva_no_completada`; perfiles que no participaron → `403 no_participante`; si todo está bien, crea la calificación en el crud-api → `201`. (El análisis del comentario con un API de tercero queda pendiente de definir el proveedor.)
 
 **Consumo resiliente:** token Client Credentials cacheado con renovación proactiva; ante **401 renueva y reintenta una sola vez**; **403** no se reintenta (error de permisos); **404/409/400** se propagan como negocio; **503, timeouts y red caída** se reintentan con límite y se traducen al error común.
 
@@ -288,20 +288,24 @@ docker run --env-file .env -p 3002:3002 subete-mid-api
 
 ```bash
 cd services/crud-api && npm test     # 5 pruebas (esqueleto)
-cd services/mid-api  && npm test     # 4 pruebas (esqueleto)
+cd services/mid-api  && npm test     # 46 pruebas
 ```
 
-Ambos pipelines las corren con `npm test` (runner nativo `node:test`, sin salir a internet).
+Ambos pipelines las corren con `npm test` (runner nativo `node:test`, sin salir a internet). El MID usa el runner nativo en lugar de Vitest/Jest para mantener el pipeline homogéneo (`npm test` en CI) y evitar dependencias extra.
 
 **`crud-api`** — pruebas de la infraestructura del esqueleto:
 
 - `api.test.ts`: `/health` sin cabecera, **401 sin cabecera secreta** (con formato común), ruta desconocida → 404 y **501 `no_implementado`** en los endpoints pendientes.
 
-**`mid-api`** — pruebas de la infraestructura del esqueleto:
+**`mid-api`** — `POST /calificaciones/validadas` implementado + infraestructura:
 
-- `api.test.ts`: `/health`, **401 sin cabecera secreta**, ruta desconocida → 404 y **501 `no_implementado`** en los endpoints pendientes.
-
-Al implementar cada parte se añaden sus pruebas con **mocks inyectados** (inyección de dependencias en `DependenciasPuntaje` / `DependenciasValidacion` y `fetchFn` en los clientes HTTP): nunca se toca la red ni la base de datos de otro servicio.
+- `validaciones.test.ts`: validación de entrada (ids, estrellas 1–5, auto-calificación → 400 `auto_calificacion`, comentario ≤ 500).
+- `calificacionesValidadas.service.test.ts`: 201 pasajero→conductor y conductor→pasajero, 404, 409 `reserva_no_completada` (pendiente/confirmada/cancelada), 403 `no_participante`, propagación de 409 del CRUD y 503 de Reservas.
+- `tokens.test.ts`: token cacheado, renovación con `forzar`, fallo → 503 `token_no_disponible`, y **401 → renueva y reintenta una sola vez**.
+- `http.test.ts`: éxito, reintento ante 503, sin reintento ante 4xx, timeout → `tiempo_excedido`, red caída → `red_no_disponible`.
+- `reservas.client.test.ts`: normalización snake/camel incluyendo `conductor_id`, 404 → `reserva_no_encontrada`, red caída → `reservas_no_disponible`, 401 → renueva y reintenta.
+- `crud.client.test.ts`: creación 201 mapeada, propagación de 409/400, red caída → `crud_no_disponible`.
+- `api.test.ts`: `/health`, 401, 404, 400 sin red y **503 `reservas_no_disponible`** cuando Reservas no responde.
 
 ---
 
