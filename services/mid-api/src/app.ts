@@ -18,8 +18,9 @@ import { validadasRouter } from './modules/calificaciones-validadas/calificacion
  */
 export function crearApp(): Application {
   const app = express();
-
+  //no incluir x-powered-by: Express en la cabecera de las respuestas
   app.disable('x-powered-by');
+  //añadir middleware donde acepta cualquier petición <100kb
   app.use(express.json({ limit: '100kb' }));
 
   // Salud: 200 siempre, exenta de la cabecera del gateway (prueba de humo).
@@ -29,10 +30,10 @@ export function crearApp(): Application {
 
   // Todas las rutas de negocio pasan por la validación de la cabecera.
   app.use(exigirCabeceraGateway(config.cabeceraGateway));
-
+  //rutas iniciales definidas en api-mid
   app.use('/perfiles', puntajeRouter);
   app.use('/calificaciones', validadasRouter);
-
+  //definición ante rutas diferentes y plantillas de errores
   app.use(rutaNoEncontrada);
   app.use(manejadorErrores);
 

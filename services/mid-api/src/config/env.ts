@@ -25,6 +25,7 @@ function numero(nombre: string, defecto: number): number {
 const urlGateway = exigir('GATEWAY_URL');
 
 export const config = {
+  // ?? significa tomar el valor de la derecha si el valor de la izquierda tiene un null o undefined
   entorno: process.env.NODE_ENV ?? 'development',
   puerto: Number(process.env.MID_API_PORT ?? process.env.PORT ?? 3002),
 
@@ -39,9 +40,9 @@ export const config = {
     margenVencimientoS: numero('TOKEN_MARGEN_VENCIMIENTO_S', 30),
   },
 
-  /**
-   * Bases de los consumos: por regla, todo pasa por el gateway.
-   * Son variables (nada hardcodeado) para poder apuntarlos a un mock en pruebas.
+  /*
+   Bases de los consumos: por regla, todo pasa por el gateway.
+   Son variables (nada hardcodeado) para poder apuntarlos a un mock en pruebas.
    */
   reservasUrl: process.env['RESERVAS_URL'] ?? urlGateway,
   crudUrl: process.env['CRUD_URL'] ?? urlGateway,
@@ -53,7 +54,7 @@ export const config = {
     reservas: process.env['SCOPE_RESERVAS'] ?? 'reservas:leer',
   },
 
-  /** Resiliencia HTTP compartida por todos los clientes. */
+  /* Definición de reglas de solicitudes: tiempo máximo, reintentos t espera inicial */
   http: {
     timeoutMs: numero('HTTP_TIMEOUT_MS', 3000),
     reintentos: numero('HTTP_REINTENTOS', 2),
