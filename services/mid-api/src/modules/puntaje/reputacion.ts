@@ -8,44 +8,47 @@ import { differenceInCalendarDays } from 'date-fns';
  */
 
 export type Insignia = 'nuevo' | 'confiable' | 'en_observacion' | 'regular';
-
+//Debe ser igual a CalificacionVista
 export interface Estrella {
   //para poder filtrar de los de 30 días con los demás
-  id: number;
+  id: string;
   estrellas: number;
   /** Fecha de la calificación (Date o ISO). */
   //se deja string dado que se recibe de una petición y toca asegurar
   //convertirlo en date acá para evitar problemas de null
-  creadoEn: string;
+  creadoEn: string | Date;
 }
 
 /** Ventana de "lo reciente": dentro de estos días pesa el doble. */
 export const DIAS_RECIENTES = 30;
 
-export interface DatosInsignia {
-  puntaje: number;
-  tasaCancelacion: number;
-  viajesCompletados: number;
-}
 
 /**
  * TODO (P-HU3): promedio ponderado de estrellas.
  *   - las calificaciones de los últimos 30 días pesan 2, las anteriores pesan 1
  *   - devuelve 0 cuando no hay calificaciones
+
+  Cómo funciona: Recorre un listado de calificaciones donde se compara si es menor a 30 días en la que
+  fue realizada, en caso de que lo sea, se agrega a un vector llamado estrellas30dias donde tendrá todas las calificaciones
+  con esa condición y su id. Se hace un filtro de todas las calificaciones para tener todas aquellas que NO
+  cumplen la condición de creación en el vector estrellasmas30dias. Finalmente se hace un .reduce (suma acumulada) de cada
+  vector según el peso (1 si dias>30 y 2 si dias<=30) a cada calificación y así obtener el promedio ponderado
+
  */
-export function promedioPonderado(calificaciones: Estrella[], ahora: Date): number | string {
+export function promedioPonderado(calificaciones: Estrella[], ahora: Date): number {
+  //Cuando no hay calificaciones, devuelve 0
   if (calificaciones == undefined) {
-    return "error: se tuvo un error obteniendo la información";
+    return 0;
   }
 
   //filtrar solo por -para_perfil_id-, _ca:
   //traer todas las fechas del perfil
   //va a tocar con id porque cómo distinguir cuáles eliminar?
-  let calificacionFiltrar: number[] = [],
-    estrellas30dias: number[] = [], estrellasmas30dias: Estrella[] = [];
+  let calificacionFiltrar: string[] = [],
+    estrellas30dias: number[] = [], estrellasmas30dias: Estrella[] = []
   calificaciones.forEach(calificacion => {
     let dif: number = diferenciaFechas(calificacion?.creadoEn ?? '', ahora);
-    if (dif <= 30) {
+    if (dif <= DIAS_RECIENTES) {
       //significa que hubo error en calificaciones donde es undefined
       estrellas30dias.push(calificacion.estrellas);
       if (calificacion !== undefined) {
@@ -53,56 +56,35 @@ export function promedioPonderado(calificaciones: Estrella[], ahora: Date): numb
       }
     }
   });
+  //Acá se obtiene las calificaciones sin que estén las de hace 30 días
   estrellasmas30dias = calificaciones.filter(calificacion => !calificacionFiltrar.includes(calificacion.id));
-  //ese 2 quemado no sé
   let subtotal30dias: number = estrellas30dias.reduce((sumatotal, estrella) => sumatotal + estrella * 2);
   let subtotalmas30dias: number = estrellasmas30dias.reduce((sumatotal, estrella) => sumatotal + estrella.estrellas, 0);
   let divisor = (2 * estrellas30dias.length) + (1 * estrellasmas30dias.length);
-  return (subtotal30dias + subtotalmas30dias) / divisor;
-  /*
-  Supongamos que tienes estas calificaciones:
-  Nota	Porcentaje
-  4.0	30%
-  3.5	20%
-  4.5	50%
-  
-  Multiplicamos cada nota por su porcentaje:
-  \[
-  \frac{4.0(30)+3.5(20)+4.5(50)}{30+20+50}
-  \]
-  
-  \[
-  =\frac{120+70+225}{100}
-  \]
-  */
+  return Number(((subtotal30dias + subtotalmas30dias) / divisor).toFixed(2));
 
-  /* 
-  se debe colocar valor inicial en caso de que se busque un diferente tipo
-  estrellasmas30dias.reduce((a,e)=>a+e.estrellas);
-
-*/
-
-
-  /*
-  ponderado= sigma(x_n*y_n)/sigma(y_n) 
-  x_n= estrella
-  y_n=peso
-  0 E x_n =0
-  */
 }
 
 /** TODO: tasa de cancelación = canceladas / total. 0 si no hay reservas. */
-export function tasaCancelacion(_canceladas: number, _total: number): number {
-  return pendiente('tasaCancelacion');
+export function tasaCancelacion(canceladas: number, total: number): number {
+  //Pedir datos de reserva: id_pasajero, estado->cancelada, total de reservas
+  if (total == 0) {
+    //no hay reservas para ese pasajero
+    return 0;
+  } else {
+    return Number((canceladas / total).toFixed(2));
+  }
+  //return pendiente('tasaCancelacion');
 }
 
 /**
  * TODO: puntaje de 0 a 5:
  *   puntaje = promedioPonderado - tasaCancelacion * 2   (limitado entre 0 y 5,
- *   redondeado a 2 decimales)
+ *   se redondea a 1 decimal ya que no especifica
  */
-export function calcularPuntaje(_promedio: number, _tasa: number): number {
-  return pendiente('calcularPuntaje');
+export function calcularPuntaje(promedio: number, tasa_canceladas: number): number {
+  let puntaje = promedio - (tasa_canceladas * 2)
+  return Number(puntaje.toFixed(1));
 }
 
 /**
@@ -112,8 +94,20 @@ export function calcularPuntaje(_promedio: number, _tasa: number): number {
  *   3. en_observacion  → puntaje < 3.5 o tasa de cancelación > 30%
  *   4. regular         → el resto
  */
-export function asignarInsignia(_datos: DatosInsignia): Insignia {
-  return pendiente('asignarInsignia');
+export function asignarInsignia(puntaje: number, tasa_cancelacion:number, viajes_completados: number): Insignia {
+  let insignia: Insignia = 'regular';
+  // export type Insignia = 'nuevo' | 'confiable' | 'en_observacion' | 'regular';
+  if (viajes_completados < 5) {
+    insignia = 'nuevo';
+
+  } else if (puntaje >= 4.5 && tasa_cancelacion < 0.1) {
+    insignia = 'confiable';
+
+  } else if (puntaje < 3.5 || tasa_cancelacion > 0.3) {
+    insignia = 'en_observacion';
+  }
+  return insignia;
+
 }
 
 
@@ -123,7 +117,7 @@ Funciones para cálculos
 
 
 
-function diferenciaFechas(date1: string, date2: Date): number {
+function diferenciaFechas(date1: string | Date, date2: Date): number {
 
   const d1 = new Date(date1);
   // se utiliza en días calendarios y no días normales por ser más usado

@@ -1,11 +1,12 @@
 import { clienteCrud, clienteReservas } from '../../clients/index.js';
 import type { CalificacionVista, PerfilVista } from '../../clients/crud.client.js';
 import type { ReservaVista } from '../../clients/reservas.client.js';
-import { pendiente } from '../../middleware/errores.js';
-import type { Insignia } from './reputacion.js';
+import { AppError } from '../../middleware/errores.js';
+import { asignarInsignia, calcularPuntaje, promedioPonderado, tasaCancelacion, type Insignia } from './reputacion.js';
+import { } from 'date-fns';
 
 export interface PuntajePerfil {
-  perfilId: string;
+  // perfilId: string;
   puntaje: number;
   insignia: Insignia;
   viajesCompletados: number;
@@ -42,15 +43,48 @@ export function dependenciasPuntaje(): DependenciasPuntaje {
  * 5. Asigna la insignia (ver reputacion.ts).
  * 6. Si Reservas no responde → 503 (no se calcula un puntaje incompleto).
  */
-export async function calcularPuntajePerfil(
-  _idPerfil: string,
-  _dependencias: DependenciasPuntaje = dependenciasPuntaje(),
-  _ahora: Date = new Date(),
-): Promise<PuntajePerfil> {
-  //verificar si el perfil primero existe
-  if (false) {
-    return pendiente('404 perfil no existe');
-  }
+export async function calcularPuntajePerfil(idPerfil: string,): Promise<PuntajePerfil> {
 
-  return pendiente('calcularPuntajePerfil');
+  let dependencias: DependenciasPuntaje = dependenciasPuntaje(), fecha_hoy: Date = new Date();
+
+  //verificar si el perfil primero existe
+  // revisar bien esta parte @@
+  let calificaciones: CalificacionVista[];
+  try {
+    calificaciones = await dependencias.calificaciones.listarRecibidas(idPerfil);
+
+  } catch (error) {
+    throw new AppError(
+      404,
+      'perfil_no_encontrado',
+      'Fallo en verificación de existencia del perfil y calificaciones: ' + error);
+  }
+  let reservas: ReservaVista[];
+  let viajes_cancelados: number = 0, viajes_completados: number = 0, viajes_totales: number = 0,
+    promedio: number = 0, tasa_cancelacion: number = 0, puntaje_tt: number = 0;
+  let insignia: Insignia;
+  try {
+    reservas = await dependencias.reservas.listarPorUsuario(idPerfil);
+    viajes_cancelados = reservas.filter(reserva => reserva.estado == 'cancelada').length;
+    viajes_completados = reservas.filter(reserva => reserva.estado == 'completada').length;
+    viajes_totales = reservas.length;
+  } catch (error) {
+    throw new AppError(
+      503,
+      'conexion_reservas',
+      'Fallo en verificación de existencia de reservas: ' + error);
+  }
+  promedio = promedioPonderado(calificaciones, fecha_hoy);
+  tasa_cancelacion = tasaCancelacion(viajes_cancelados, viajes_totales);
+  puntaje_tt = calcularPuntaje(promedio, tasa_cancelacion);
+  insignia = asignarInsignia(puntaje_tt, tasa_cancelacion, viajes_completados);
+
+  const datos: PuntajePerfil = {
+    puntaje: puntaje_tt,
+    insignia: insignia,
+    tasaCancelacion: tasa_cancelacion,
+    viajesCompletados: viajes_completados,
+    totalCalificaciones: calificaciones.length
+  };
+  return datos;
 }
