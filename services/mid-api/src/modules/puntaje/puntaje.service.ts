@@ -43,9 +43,12 @@ export function dependenciasPuntaje(): DependenciasPuntaje {
  * 5. Asigna la insignia (ver reputacion.ts).
  * 6. Si Reservas no responde → 503 (no se calcula un puntaje incompleto).
  */
-export async function calcularPuntajePerfil(idPerfil: string,): Promise<PuntajePerfil> {
+export async function calcularPuntajePerfil(
+  idPerfil: string,
+  dependencias: DependenciasPuntaje = dependenciasPuntaje(),
+): Promise<PuntajePerfil> {
 
-  let dependencias: DependenciasPuntaje = dependenciasPuntaje(), fecha_hoy: Date = new Date();
+  const fecha_hoy: Date = new Date();
 
   //verificar si el perfil primero existe
   // revisar bien esta parte @@
@@ -54,6 +57,9 @@ export async function calcularPuntajePerfil(idPerfil: string,): Promise<PuntajeP
     calificaciones = await dependencias.calificaciones.listarRecibidas(idPerfil);
 
   } catch (error) {
+    if (!(error instanceof AppError) || error.status !== 404) {
+      throw error;
+    }
     throw new AppError(
       404,
       'perfil_no_encontrado',

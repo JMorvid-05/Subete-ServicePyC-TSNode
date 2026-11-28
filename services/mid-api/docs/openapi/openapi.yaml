@@ -59,9 +59,18 @@ paths:
       operationId: obtenerPuntaje
       summary: Puntaje de confianza e insignia de un perfil
       description: |
-        TODO (P-HU3): puntaje 0–5 (promedio ponderado con últimos 30 días
-        al doble, menos tasa de cancelación × 2) e insignia. Si el perfil no
-        existe → 404; si Reservas no responde → 503 (sin puntaje incompleto).
+        Calcula el puntaje de confianza combinando las calificaciones recibidas
+        por el perfil y sus reservas. Las calificaciones de los últimos 30 días
+        tienen peso doble; al promedio ponderado se le resta dos veces la tasa
+        de cancelación. También devuelve la insignia, los viajes completados,
+        la tasa de cancelación y el total de calificaciones.
+
+        Consulta las calificaciones en CRUD mediante
+        `GET /calificaciones?paraPerfilId={id}` y las reservas mediante
+        `GET /reservas?usuarioId={id}`, siempre a través del API Gateway.
+        Si el perfil no existe responde 404 `perfil_no_encontrado`. Si Reservas
+        no está disponible responde 503 `conexion_reservas`; no devuelve un
+        puntaje parcial.
       tags: [Puntaje]
       security:
         - bearerAuth: []
@@ -71,7 +80,39 @@ paths:
           description: Puntaje del perfil
           content:
             application/json:
-              schema: { type: object }
+              schema:
+                type: object
+                required: [puntaje, insignia, viajesCompletados, tasaCancelacion, totalCalificaciones]
+                properties:
+                  puntaje:
+                    type: number
+                    minimum: 0
+                    maximum: 5
+                    description: Promedio ponderado menos dos veces la tasa de cancelación.
+                    examples: [3.4]
+                  insignia:
+                    type: string
+                    enum: [nuevo, confiable, en_observacion, regular]
+                    examples: [en_observacion]
+                  viajesCompletados:
+                    type: integer
+                    minimum: 0
+                    examples: [8]
+                  tasaCancelacion:
+                    type: number
+                    minimum: 0
+                    maximum: 1
+                    examples: [0.2]
+                  totalCalificaciones:
+                    type: integer
+                    minimum: 0
+                    examples: [10]
+              example:
+                puntaje: 3.4
+                insignia: en_observacion
+                viajesCompletados: 8
+                tasaCancelacion: 0.2
+                totalCalificaciones: 10
         '401': { $ref: '#/components/responses/Error401' }
         '404': { $ref: '#/components/responses/Error404' }
         '503': { $ref: '#/components/responses/Error503' }

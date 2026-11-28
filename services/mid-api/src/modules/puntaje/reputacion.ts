@@ -48,7 +48,7 @@ export function promedioPonderado(calificaciones: Estrella[], ahora: Date): numb
     estrellas30dias: number[] = [], estrellasmas30dias: Estrella[] = []
   calificaciones.forEach(calificacion => {
     let dif: number = diferenciaFechas(calificacion?.creadoEn ?? '', ahora);
-    if (dif <= DIAS_RECIENTES) {
+    if (dif >= 0 && dif <= DIAS_RECIENTES) {
       //significa que hubo error en calificaciones donde es undefined
       estrellas30dias.push(calificacion.estrellas);
       if (calificacion !== undefined) {
@@ -58,7 +58,8 @@ export function promedioPonderado(calificaciones: Estrella[], ahora: Date): numb
   });
   //Acá se obtiene las calificaciones sin que estén las de hace 30 días
   estrellasmas30dias = calificaciones.filter(calificacion => !calificacionFiltrar.includes(calificacion.id));
-  let subtotal30dias: number = estrellas30dias.reduce((sumatotal, estrella) => sumatotal + estrella * 2);
+  //por defecto se coloca en 0 el reduce
+  let subtotal30dias: number = estrellas30dias.reduce((sumatotal, estrella) => sumatotal + estrella * 2, 0);
   let subtotalmas30dias: number = estrellasmas30dias.reduce((sumatotal, estrella) => sumatotal + estrella.estrellas, 0);
   let divisor = (2 * estrellas30dias.length) + (1 * estrellasmas30dias.length);
   return Number(((subtotal30dias + subtotalmas30dias) / divisor).toFixed(2));
@@ -122,8 +123,8 @@ function diferenciaFechas(date1: string | Date, date2: Date): number {
   const d1 = new Date(date1);
   // se utiliza en días calendarios y no días normales por ser más usado
   //   comparar fechas y no la cantidad exacta de horas.
-
-  return differenceInCalendarDays(d1, date2);
+  //nota: este método , el arg1 es la fecha más reciente y arg2 la más antigua
+  return differenceInCalendarDays(date2, d1);
 }
 
 
